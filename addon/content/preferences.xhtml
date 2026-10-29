@@ -1,0 +1,19 @@
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul" xmlns:html="http://www.w3.org/1999/xhtml" onload="Zotero.TransYH.initPreferences(window)">
+  <html:section style="max-width:680px;padding:8px;font:message-box;">
+    <html:h2>TransYH</html:h2>
+    <html:p>本地保留版式翻译，在同一个阅读标签中切换中文与英文。</html:p>
+    <html:div style="display:grid;grid-template-columns:130px 1fr;gap:12px;align-items:center;">
+      <html:label for="transyh-base">API Base URL</html:label><html:input id="transyh-base" type="url" placeholder="https://your-provider.example/v1"/>
+      <html:label for="transyh-key">API Key</html:label><html:input id="transyh-key" type="password" autocomplete="off"/>
+      <html:label for="transyh-model">Model</html:label><html:input id="transyh-model" type="text" placeholder="填写服务商提供的模型名称"/>
+      <html:label for="transyh-concurrency">并发请求数</html:label><html:input id="transyh-concurrency" type="number" min="1" max="8" value="4"/>
+      <html:label for="transyh-python">Python 路径（可选）</html:label><html:input id="transyh-python" type="text" placeholder="留空以自动检测 TransYH 本地引擎"/>
+    </html:div>
+    <html:p>默认同时翻译 4 个段落。若服务商限制并发，可改为 1–2；调用内容和模型保持相同。</html:p>
+    <html:p><html:label><html:input id="transyh-http" type="checkbox"/> 允许此地址使用 HTTP（明文传输；仅对当前保存地址生效）</html:label></html:p>
+    <html:p style="display:flex;gap:8px;"><html:button id="transyh-save">保存设置</html:button><html:button id="transyh-test">测试连接</html:button><html:button id="transyh-detect">检测本地引擎</html:button></html:p>
+    <html:p id="transyh-status" role="status" style="white-space:pre-wrap;min-height:2em;"/>
+    <html:p>首次使用：运行随源码或安装包提供的 install-engine.command（macOS）或 install-engine.ps1（Windows）。首次翻译会下载开源版式模型与字体，需要网络和磁盘空间。</html:p>
+    <html:p>只调用你配置的 API，调用费用由服务商计收。Key 使用 Zotero/Gecko 本地凭据管理器保存；本地无密钥服务可留空。翻译期间请保持 Zotero 运行。</html:p>
+  </html:section>
+</vbox>

@@ -1,0 +1,13 @@
+{
+  "manifest_version": 2,
+  "name": "TransYH isolated test harness",
+  "version": "1.0.0",
+  "applications": {
+    "zotero": {
+      "id": "transyh-tests@local",
+      "strict_min_version": "9.0",
+      "strict_max_version": "10.*",
+      "update_url": "https://transyh.invalid/updates.json"
+    }
+  }
+}

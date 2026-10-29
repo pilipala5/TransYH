@@ -1,0 +1,6 @@
+# BabelDOC 0.6.4 permits incompatible new major dependencies.
+# These versions are fixed after executable macOS integration testing.
+babeldoc==0.6.4
+bitstring==4.3.1
+pymupdf==1.26.7
+openai==3.40.0
