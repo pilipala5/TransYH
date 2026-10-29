@@ -23,14 +23,14 @@ README 使用原生 Markdown、居中段落与 SVG 标识，无自定义 CSS、�
 | 文件 | 尺寸 | 内容与来源 |
 | --- | --- | --- |
 | [logo.svg](logo.svg) / [logo.png](logo.png) | 96×96 视图 / 512×512 透明 PNG | 可编辑矢量标识及预览 |
-| [hero.png](hero.png) | 1600×960 | `highlights-after.png` 正文局部 + 单独标明放大的原生控件 |
+| [hero.png](hero.png) | 1600×920 | `highlights-after.png` 两段完整正文 + 明确分隔的同页表格局部 + 独立原生控件细节 |
 | [comparison.png](comparison.png) | 1440×1176 | `reader-english.png`、`reader-chinese.png` 同页段落，上下排列 |
 | [switching.png](switching.png) | 1440×410 | 两份原始阅读器顶部右侧控件的连续局部，各自保持完整按钮 |
 | [highlights.png](highlights.png) | 1440×658 | `highlights-before.png`、`highlights-after.png` 同一段落前后对照 |
 | [social-cover.png](social-cover.png) | 1200×630 | 品牌文案 + 真实中文标注画面 |
 | [generate.py](generate.py) | — | 生成全部素材；集中记录原截图坐标、文案、排版和颜色 |
 
-源文件在 `docs/demo/`，保持原文件不变。只进行矩形裁切、等比缩放、外部版面组合和 PNG 导出压缩，不改正文、数值、结论、控件或标记。对照排布并非产品分屏；Hero 的语言控件是单独注明的放大细节，没有拼装成虚构的新版阅读器。
+源文件在 `docs/demo/`，保持原文件不变。只进行矩形裁切、等比缩放、外部版面组合和 PNG 导出压缩，不改正文、数值、结论、控件或标记。Hero 和社媒封面的正文、表格是明确分隔的独立裁切，跳过中间段落，不暗示原论文中两者相邻；所示两个正文段落与表 1 均完整保留。对照排布并非产品分屏；Hero 的语言控件是单独注明的放大细节，没有拼装成虚构的新版阅读器。
 
 ## 重新输出
 

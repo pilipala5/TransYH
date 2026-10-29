@@ -107,18 +107,20 @@ def logo():
 
 
 def hero():
-    im = Image.new("RGB", (1600, 960), NAVY)
+    im = Image.new("RGB", (1600, 920), NAVY)
     label(im, (64, 40), "科研重点，就在论文里。", 48, WHITE, True)
     label(im, (66, 112), "中文阅读  /  原文随时可见  /  AI 重点标注", 25, "#B9C8E0")
     # The REAL v0.2.0 toolbar, enlarged as a separately labelled detail.
     rect(im, (1140, 36, 1536, 116), radius=12)
     crop(im, "highlights-after.png", (922, 0, 1120, 40), (1140, 36), 396)
     label(im, (1140, 133), "真实控件 · 局部放大", 21, "#B9C8E0")
-    rect(im, (64, 194, 1536, 902), radius=16)
-    crop(im, "highlights-after.png", (241, 299, 881, 619), (110, 210), 1380)
-    label(im, (66, 914), "真实 Zotero 截图 · v0.2.0 · 论文正文局部", 20, "#B9C8E0")
-    label(im, (1100, 914), "蓝：核心发现   橙：关键数据", 20, "#B9C8E0")
-    label(im, (66, 943), CREDIT, 12, "#B9C8E0")
+    rect(im, (64, 194, 1536, 850), radius=16)
+    crop(im, "highlights-after.png", (241, 299, 881, 485), (110, 214), 1380)
+    label(im, (110, 636), "同页表格 · 独立局部放大", 20, MUTED)
+    crop(im, "highlights-after.png", (241, 675, 881, 749), (110, 674), 1380)
+    label(im, (66, 866), "真实 Zotero 截图 · v0.2.0 · 正文与同页表格节选", 20, "#B9C8E0")
+    label(im, (1100, 866), "蓝：核心发现   橙：关键数据", 20, "#B9C8E0")
+    label(im, (66, 899), CREDIT, 12, "#B9C8E0")
     save(im, "hero.png")
 
 
@@ -172,7 +174,9 @@ def social(mark):
     label(im, (52, 407), "使用你自己的 API", 24, MUTED)
     rect(im, (556, 46, 1152, 510), outline=BORDER)
     label(im, (578, 66), "真实 Zotero 画面 · v0.2.0", 20, MUTED)
-    crop(im, "highlights-after.png", (241, 299, 881, 650), (574, 135), 560)
+    crop(im, "highlights-after.png", (241, 299, 881, 485), (574, 135), 560)
+    label(im, (580, 324), "同页表格 · 独立局部", 18, MUTED)
+    crop(im, "highlights-after.png", (241, 675, 881, 749), (574, 365), 560)
     label(im, (580, 466), "蓝色发现 · 橙色数据", 22, MUTED)
     ImageDraw.Draw(im).line((48, 548, 1152, 548), fill=BORDER, width=2)
     label(im, (50, 575), "Zotero 全文翻译 · 双语切换 · AI 重点标注", 24, NAVY, True)

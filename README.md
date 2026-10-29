@@ -6,7 +6,7 @@
 
 在 Zotero 中完整翻译英文科研 PDF，尽可能保留论文版式；原文随时可见，重点直接标在中文译文里。
 
-![真实 Zotero 中文 PDF 正文中的橙色关键数据和蓝色核心发现；右上为实际中文 / EN 控件的独立放大裁切](docs/brand/hero.png)
+![真实 Zotero 中文 PDF 两段正文中的橙色关键数据与蓝色核心发现、同页表格节选；右上为中文 / EN 控件的独立放大细节](docs/brand/hero.png)
 
 <p align="center">
   <a href="dist/TransYH-0.2.3.xpi?raw=true">Download</a> ·
@@ -17,7 +17,7 @@
 
 <p align="center"><sub>当前开发版 v0.2.3 · 已验证 macOS Apple Silicon / Zotero 10.0.6</sub></p>
 
-<sub>真实界面截取自 v0.2.0 三页演示：Guo et al. (2025), PLOS ONE；仅原第 7、9、13 页，不代表整篇准确率验证。<a href="docs/demo/README.md">来源、CC BY 4.0 许可与核对记录 →</a></sub>
+<sub>真实界面截取自 v0.2.0 三页演示：Guo et al. (2025), PLOS ONE；仅原第 7、9、13 页，不代表整篇准确率验证。表中数值属于原论文的生态位模型。<a href="docs/demo/README.md">来源、CC BY 4.0 许可与核对记录 →</a></sub>
 
 ## 01 — Read in Chinese
 
