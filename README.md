@@ -1,0 +1,117 @@
+# TransYH
+
+为 Zotero 9–10 开发的科研 PDF 全文英译中插件。使用本机 BabelDOC 排版引擎和你自己的 OpenAI 兼容 API，只生成一份中文 PDF，以独立附件保存；英文原件始终保留。
+
+0.1.3 默认支持 4 个并发段落，并显示实际耗时、段落进度和请求状态；可在设置中调整为 1–8 个并发请求，见 [速度与进度修复记录](PERFORMANCE_FIX_20261029.md)。0.1.1 已增加单个远程 HTTP 服务的明确授权、安全的 macOS 一次性配置导入，并统一连接测试和翻译使用的 API 客户端。已通过用户自配服务的 `gpt-6.1-sol` 真实三页翻译验证，见 [真实 API 测试记录](REAL_API_TEST_20261029.md)。此版本不在代码或 XPI 中预设任何人的地址、模型或 Key。
+
+阅读器工具栏提供 **中文 | EN**。同一个 Zotero 标签中保留两个原生阅读实例，通过显隐切换，保持页码、缩放模式和 PDF 页面坐标。首次打开某一语言需要加载 PDF，之后切换复用内存中的实例。中文视图只读，英文视图保留 Zotero 原生批注功能。
+
+## 安装
+
+1. 下载 [TransYH-0.1.3.xpi](https://github.com/pilipala5/TransYH/raw/refs/heads/main/dist/TransYH-0.1.3.xpi)，或运行 `npm ci && npm run build` 自行构建。
+2. Zotero → 工具 → 插件 → 右上角齿轮 → **Install Add-on From File / 从文件安装插件**，选择 XPI。
+3. 安装本地引擎。macOS / Linux 需要 [uv](https://docs.astral.sh/uv/getting-started/installation/)；使用 Homebrew 可先运行 `brew install uv`。然后在项目目录运行：
+
+   ```bash
+   chmod +x install-engine.command
+   ./install-engine.command
+   ```
+
+   macOS 也可直接双击该文件。脚本由 uv 管理 Python 3.12 和独立虚拟环境，固定 BabelDOC 0.6.4 及必要的兼容依赖。Apple Silicon 使用完整依赖锁定文件。
+
+   Windows 安装 uv 后，在项目目录的 PowerShell 运行 `./install-engine.ps1`。Windows 路径及脚本已实现，尚未在 Windows 客户端验证。
+4. Zotero → 设置 → **TransYH**，点击 **检测本地引擎**。
+
+引擎自动检测目录：
+
+| 系统 | Python |
+| --- | --- |
+| macOS | `~/Library/Application Support/TransYH/engine/bin/python` |
+| Windows | `%LOCALAPPDATA%\TransYH\engine\Scripts\python.exe` |
+| Linux | `~/.local/share/TransYH/engine/bin/python` |
+
+也可在插件设置中填写其他虚拟环境的 Python **可执行文件完整路径**。应使用 `engine/requirements.txt` 中的固定版本。仅安装到系统 Python、但不填写其路径，不会被插件误识别为已配置引擎。
+
+首次翻译由 BabelDOC 自动下载开源版式检测模型及字体，下载资源约数百 MB；本次 macOS 安装的 Python 依赖约 670 MB，模型与字体约 250 MB。需要网络、约 1 GB 以上可用空间和额外的 PDF 临时处理空间。首次模型编译可能比后续任务慢。没有商业翻译平台账号要求。
+
+## API 配置
+
+填写你自己的 **API Base URL、API Key、Model**，点击 **保存设置**，再点 **测试连接**。不预选任何供应商或模型。测试连接会发送一次很小的真实模型请求，费用由你的 API 服务商计收。
+
+支持以下地址形式：
+
+```text
+https://provider.example           → https://provider.example/v1
+https://provider.example/v1/       → https://provider.example/v1
+https://provider.example/v1/chat/completions → https://provider.example/v1
+https://gateway.example/api/openai/v1       → 保留自定义路径
+http://localhost:8000/v1                    → 支持本机服务
+```
+
+插件在规范化后的地址追加 `/chat/completions`。远程地址默认使用 HTTPS；内网或组内服务只有在设置中明确勾选“允许此地址使用 HTTP”后才可使用 HTTP，授权仅适用于当前保存的完整服务地址。本机 localhost、127.0.0.1 和 ::1 可直接使用 HTTP。不接受地址内的密码、查询参数或锚点。模型名称直接使用服务商提供的标识；本机无鉴权接口可留空 Key。
+
+Key 使用 Zotero/Gecko 登录凭据管理器加密保存于 Zotero 配置文件中，**不写入普通偏好设置**。这不是独立的 macOS Keychain 条目。与 Zotero 配置文件一起备份或迁移时，应妥善保管该配置文件。插件只通过匿名标准输入管道将 Key 交给本地 Python，命令行中不包含 Key，也不记录 API 原始错误响应。
+
+如果已为这台 Mac 准备了一次性配置，插件安装/启用时会从 macOS Keychain 读取预先安全保存的 Key，再写入 Zotero 的加密凭据库。一次性 JSON 只包含地址、模型及 HTTP 授权，成功应用后会删除；Keychain 本身保留加密凭据。普通安装不触发这项引导，也不会自动读取其他服务的凭据。
+
+## 使用
+
+1. 选中文献条目或 PDF 附件，右键 → **翻译全文 · TransYH**。文献有多个 PDF 时使用 Zotero 的最佳 PDF 附件。
+2. 进度提示显示当前阶段、段落计数、已耗时和等待模型的请求数。可右键 → **查看翻译进度 · TransYH** 重新显示；需要停止时选择 **取消全文翻译 · TransYH**。
+3. 完成后同一文献条目下出现 `… · 中文 (TransYH)` 附件，自动在阅读器中显示中文。
+4. 点击顶部 **中文 | EN** 切换。已有阅读标签会直接复用；从文献列表开始且尚无阅读标签时，会创建一个原文阅读标签，再在该标签内显示中文。
+
+没有译文时点击 **中文** 也可直接启动全文翻译。首次阅读默认英文；已有本地阅读记录时恢复上次语言和进度。直接打开中文附件时也可切回英文。
+
+失败或取消后再次执行同一入口即可重试。已生成且源文件未变化的中文附件会直接复用，不再调用 API。BabelDOC 的段落缓存也可在失败后的重试中复用；缓存区分模型、API 地址和语言。API Key 变化不改变文本翻译缓存。
+
+译文附件带有 `TransYH:source:<原文key>` 和源文件大小/修改时间标记。重启后通过这些标记识别译文，原附件不被覆盖。请勿删除这些标记；它们也可随 Zotero 附件同步。本地阅读状态位于 Zotero 数据目录的 `transyh/reading.json`，不随附件同步。
+
+## 构建与测试
+
+需要 Node.js 22+ 和 Python 3（构建脚本使用 Python 标准库；翻译引擎独立使用 Python 3.12）。
+
+```bash
+npm ci
+npm run typecheck
+npm run build
+npm test
+```
+
+引擎开发及 API 错误测试：
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r engine/requirements.txt pytest reportlab
+npm run test:engine
+```
+
+`npm run test:zotero` 在 macOS 的独立 Zotero 配置和资料库中运行安装、工具栏、单标签切换、进度保存和翻译集成测试。测试资料位于 `.test-profile/`、`.test-data/`、`.test-runtime/`，不会读取现有文献或使用真实 Key。详细结果和可复现步骤见 [TEST_RESULTS.md](TEST_RESULTS.md)。Mock 只替代 API 响应；PDF 的解析、版式识别、公式保护及写出使用真实 BabelDOC。
+
+## 兼容性与限制
+
+- 本机实际运行验证为 **Zotero 10.0.6 / macOS Apple Silicon**。开发时曾检测到运行中的 9.0.6 及其源码接口，之后新启动客户端为 10.0.6。9.x 通过版本与接口探测支持，尚未完成 9.x 独立运行回归；Windows、Intel macOS 和 Linux 也尚未实测。
+- 工具栏和 PDF 实例/位置同步需要未公开接口。所有访问集中于 `src/reader-compat.ts`，升级 Zotero 大版本可能需要适配。只支持原生 **PDF** 阅读模式；不支持 Zotero 10 的重排文本阅读模式、EPUB、外部阅读器或独立阅读窗口。
+- 没有修改任何 Zotero 核心文件。切换不会调用打开另一个译文标签的 API。两份 PDF 同时驻留会增加内存占用；关闭标签或禁用插件会释放额外实例。
+- 中文视图只读，原文与译文批注不互相复制。中文实例有自己的原生查找、页码和缩放工具；Zotero 主菜单和右侧上下文仍关联该标签原始附件，涉及附件修改/导出时请使用文献列表中的相应附件。
+- 页码同步依赖译文页数不变；若引擎输出页数不同，将拒绝导入。页面坐标同步是几何映射，不能保证两种语言中同一语句在相同垂直坐标。
+- 不保证所有论文无排版问题。复杂跨页表格、文字嵌入图像、特殊字体、密集公式可能仍需核对；图片内部文字保留原图，专名、代码、数字、参考文献可能保留英文。
+- 第一版不包含 OCR；纯扫描、加密或损坏 PDF 会给出错误。长文献成本和耗时由论文长度、模型、网络及服务商限流决定。
+- 插件只将论文文字发往你配置的 API；BabelDOC 在本机解析、识别版式并排版。不提供聊天、总结、侧边栏、双语分屏或拼接 PDF。
+- 第一版使用保留域名 `transyh.invalid` 作为 Zotero 要求的更新 URL，不提供自动更新。更新时手动安装新的 XPI。
+
+## 源码结构
+
+```text
+addon/                 Zotero manifest、启动及设置片段
+src/reader-compat.ts   原生阅读器私有接口兼容层
+src/readers.ts         同标签显隐切换和状态保存
+src/storage.ts         附件识别、凭据和本地阅读记录
+src/engine.ts          Python 子进程与进度协议
+src/index.ts           右键菜单、设置、任务调度
+engine/worker.py       BabelDOC 与 OpenAI-compatible 适配
+scripts/               构建和隔离 Zotero 测试入口
+tests/                 Mock API、原创测试 PDF 和行为测试
+```
+
+开源项目版本、许可证及使用方式见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目以 **AGPL-3.0-or-later** 发布，完整许可证见 [LICENSE](LICENSE)。
