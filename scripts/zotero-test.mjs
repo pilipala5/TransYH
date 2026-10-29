@@ -114,6 +114,17 @@ try {
   assert.equal(await stats(),beforeParagraphCache);assert.ok(cached.cachedParagraphs>0);
   results.paragraphCache={cachedParagraphs:cached.cachedParagraphs,additionalAPICalls:0,concurrencyChanged:4+' -> '+2};
 
+  console.log('Testing v0.1.4 refresh, quality tracking, idle writes and tab teardown');
+  await writeFile(path.join(runtime,'v014-items.json'),JSON.stringify({sourceID:source.id,oldZHID:results.translation.zhID}));
+  const beforeRefresh=(await(await fetch(`http://127.0.0.1:${mockPort}/stats`)).json()).models[model].calls;
+  results.v014=await invoke(await readFile(path.join(root,'tests/zotero-v014.js'),'utf8'),600000);
+  const afterRefresh=(await(await fetch(`http://127.0.0.1:${mockPort}/stats`)).json()).models[model].calls;
+  results.v014.refreshAPICalls=afterRefresh-beforeRefresh;
+  assert.ok(results.v014.refreshAPICalls>0,'Refresh must bypass the already warm paragraph cache');
+  assert.equal(results.v014.idleStateWrites,0);
+  assert.ok(results.v014.closedTabs>=2);
+  const expectedZHID=results.v014.newZHID;
+
   console.log('Testing restart persistence');
   results.beforeRestart = await invoke(`const a=Zotero.TransYH;await a.readers.showChinese(Zotero.Items.get(${source.id}));const s=[...a.readers.sessions.values()].find(x=>x.source.id===${source.id});await s.active.restore({pageIndex:1,scale:133,top:555,left:0,scrollMode:0,spreadMode:0});s.save();await a.store.flush();s.reader._window.Zotero_Tabs.select(s.reader.tabID);return {state:s.active.capture(),language:s.language};`);
   await quit();
@@ -124,7 +135,7 @@ try {
   assert.equal(results.restart.credentialRestored,true);
   const finalCalls = await stats();
   const reopened = await invoke(`const z=await Zotero.TransYH.translate(Zotero.Items.get(${source.id}));return z.id;`);
-  assert.equal(reopened,results.translation.zhID);assert.equal(await stats(),finalCalls);
+  assert.equal(reopened,expectedZHID);assert.equal(await stats(),finalCalls);
   results.restart.reusedAttachmentWithoutAPICall=true;
   results.passed=true;
   console.log('Zotero integration checks passed');

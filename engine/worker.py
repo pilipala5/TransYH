@@ -14,6 +14,7 @@ from pathlib import Path
 import sys
 import threading
 import time
+import uuid
 from urllib import parse
 
 PROTOCOL = sys.stdout
@@ -167,6 +168,19 @@ def check_engine():
     return {"version": version, "message": f"本地 BabelDOC {version} 可用。模型和字体会在首次翻译时自动下载。"}
 
 
+def configure_cache(translator, base, refresh_token=None):
+    translator.add_cache_impact_parameters("base_url", base)
+    translator.add_cache_impact_parameters("transyh_protocol", "1")
+    if refresh_token:
+        try:
+            token = str(uuid.UUID(refresh_token))
+        except (ValueError, TypeError, AttributeError):
+            raise UserError("CONFIG", "重新翻译标识无效，请重试。") from None
+        # One isolated run, including retries/fallback, shares a namespace.
+        # Ordinary v0.1.3 caches and other papers are neither read nor cleared.
+        translator.add_cache_impact_parameters("transyh_refresh", token)
+
+
 async def translate(config: dict):
     concurrency = request_concurrency(config)
     check_engine()
@@ -177,6 +191,7 @@ async def translate(config: dict):
     from babeldoc.format.pdf import high_level
     from babeldoc.format.pdf.translation_config import TranslationConfig, WatermarkOutputMode
     from babeldoc.translator.translator import OpenAITranslator, set_translate_rate_limiter
+    from quality import QualityAudit, check_pdf, save_report, track_babeldoc
 
     base = normalize_base(config.get("baseURL", ""), config.get("allowedHTTPBase", ""))
     model = config.get("model", "").strip()
@@ -245,8 +260,7 @@ async def translate(config: dict):
     translator.client.close()
     translator.client = openai.OpenAI(base_url=base, api_key=config.get("apiKey") or "local-no-key", max_retries=0,
         http_client=httpx.Client(timeout=float(config.get("timeout", 120)), follow_redirects=False))
-    translator.add_cache_impact_parameters("base_url", base)
-    translator.add_cache_impact_parameters("transyh_protocol", "1")
+    configure_cache(translator, base, config.get("refreshToken"))
     # Concurrency changes scheduling only. Keep the existing cache identity so
     # upgrades/retries reuse completed paragraphs without paying for them again.
     activity.translator = translator
@@ -258,35 +272,39 @@ async def translate(config: dict):
         qps=min(concurrency, 2), pool_max_workers=concurrency, auto_extract_glossary=False, save_auto_extracted_glossary=False,
         skip_scanned_detection=True, report_interval=0.2)
     result = None
+    audit = QualityAudit()
     heartbeat = threading.Thread(target=activity.heartbeat, daemon=True)
     heartbeat.start()
     try:
-        async for event in high_level.async_translate(cfg):
-            if event["type"] in ("progress_start", "progress_update", "progress_end"):
-                emit("progress", progress=round(float(event.get("overall_progress", 0)), 1),
-                     message=stage_message(event), **activity.snapshot())
-            elif event["type"] == "finish":
-                result = event["translate_result"]
-                # 0.6.4's cross-thread async callback can expose the terminal
-                # item before its finished flag is set. Do not request another
-                # event after finish: that can wait forever on an empty queue.
-                break
-            elif event["type"] == "error":
-                if problems:
-                    raise problems[0]
-                raise UserError("LAYOUT", "BabelDOC 无法处理该 PDF 的结构或排版，请检查文件后重试。")
-        # The engine can recover from individual translation failures by retaining
-        # English; never publish such a run as a successful Chinese translation.
-        if problems:
-            raise problems[0]
+        with track_babeldoc(high_level, audit):
+            async for event in high_level.async_translate(cfg):
+                if event["type"] in ("progress_start", "progress_update", "progress_end"):
+                    emit("progress", progress=round(float(event.get("overall_progress", 0)), 1),
+                         message=stage_message(event), **activity.snapshot())
+                elif event["type"] == "finish":
+                    result = event["translate_result"]
+                    # Stop at finish: 0.6.4 can otherwise wait on an empty queue.
+                    break
+                elif event["type"] == "error":
+                    if problems:
+                        raise problems[0]
+                    raise UserError("LAYOUT", "BabelDOC 无法处理该 PDF 的结构或排版，请检查文件后重试。")
         path = Path(result.mono_pdf_path) if result and result.mono_pdf_path else None
         if not path or not path.is_file():
             raise UserError("OUTPUT", "BabelDOC 未生成中文 PDF。")
-        with pymupdf.open(path) as pdf:
-            if len(pdf) != page_count:
-                raise UserError("PAGE_COUNT", "译文页数与原文不同，无法安全同步阅读位置。该结果未导入。")
+        emit("progress", progress=99, message="检查翻译完整性与 PDF 排版…", **activity.snapshot())
+        quality = check_pdf(source, path, audit)
+        if not audit.tracking:
+            audit.add("paragraph_tracking_unavailable")
+            quality = audit.report()
+        report_path = save_report(quality, output)
+        if quality["status"] == "structural_error":
+            raise UserError("PDF_STRUCTURE", "译文 PDF 损坏、页数或页面尺寸不匹配，未导入；已有译文保留。详见本地质量报告。")
+        if problems:
+            raise problems[0]
         return {"path": str(path), "message": "中文 PDF 已生成。", "pages": page_count,
-                "cachedParagraphs": translator.translate_cache_call_count}
+                "cachedParagraphs": translator.translate_cache_call_count,
+                "quality": quality, "qualityReport": report_path}
     finally:
         activity.stop_event.set()
         heartbeat.join(timeout=3)

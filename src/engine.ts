@@ -2,6 +2,7 @@ import { normalizeBaseURL } from "./core";
 import { Credentials, pref } from "./storage";
 
 export type EngineEvent = { type: string; message?: string; progress?: number; path?: string; code?: string; version?: string; apiKey?: string;
+  quality?: { status: "pass" | "suspect" | "structural_error"; issues: { code: string; page?: number; count: number }[] }; qualityReport?: string;
   requests?: number; completedRequests?: number; activeRequests?: number; cachedParagraphs?: number };
 export class WorkerRun {
   private process: any;
@@ -49,10 +50,10 @@ export class Engine {
   private script = "";
   constructor(private rootURI: string, private credentials: Credentials) {}
   async prepare(): Promise<void> {
-    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.1.3");
+    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.1.4");
     await IOUtils.makeDirectory(dir, { permissions: 0o700, ignoreExisting: true });
     this.script = PathUtils.join(dir, "worker.py");
-    for (const name of ["worker.py", "macos_keychain.py"]) {
+    for (const name of ["worker.py", "quality.py", "macos_keychain.py"]) {
       await IOUtils.writeUTF8(PathUtils.join(dir, name), Zotero.File.getContentsFromURL(this.rootURI + "engine/" + name), { permissions: 0o600 });
     }
   }

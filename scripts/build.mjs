@@ -9,8 +9,10 @@ await cp(path.join(root, 'addon'), path.join(root, 'build'), { recursive: true }
 await build({ entryPoints: [path.join(root, 'src/index.ts')], bundle: true, format: 'iife',
   globalName: 'TransYH', target: 'firefox128', outfile: path.join(root, 'build/content/transyh.js'),
   legalComments: 'eof' });
-await cp(path.join(root, 'engine'), path.join(root, 'build/engine'), { recursive: true,
-  filter: p => !p.includes('__pycache__') && !p.endsWith('.pyc') });
+await mkdir(path.join(root, 'build/engine'), { recursive: true });
+for (const name of ['worker.py', 'quality.py', 'macos_keychain.py', 'requirements.txt', 'requirements-macos.lock']) {
+  await cp(path.join(root, 'engine', name), path.join(root, 'build/engine', name));
+}
 await cp(path.join(root, 'LICENSE'), path.join(root, 'build/LICENSE'));
 await cp(path.join(root, 'THIRD_PARTY_NOTICES.md'), path.join(root, 'build/THIRD_PARTY_NOTICES.md'));
 await mkdir(path.join(root, 'dist'), { recursive: true });

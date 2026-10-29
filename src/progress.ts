@@ -57,12 +57,13 @@ export class TranslationProgress {
     this.popup?.changeLine({ idx: 1, text: this.details() });
   }
 
-  finish(): void {
+  finish(suspect = false): void {
     clearInterval(this.timer); this.timer = undefined;
-    this.message = "翻译完成，中文 PDF 已保存为附件。"; this.percent = 100;
+    this.message = suspect ? "译文已保存，存在疑似问题，请核对。质量报告保存在本地。"
+      : "翻译完成，中文 PDF 已保存为附件。"; this.percent = 100;
     this.render();
     this.popup?.changeLine({ icon: "chrome://zotero/skin/16/universal/tick.svg", progress: 100 });
-    this.popup?.startCloseTimer(5000);
+    this.popup?.startCloseTimer(suspect ? 12000 : 5000);
   }
 
   close(): void { clearInterval(this.timer); this.timer = undefined; this.popup?.close(); }
