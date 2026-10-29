@@ -4,7 +4,7 @@
 
 Translate research PDFs into Chinese, switch languages in one Zotero tab, and highlight evidence-backed findings with your own OpenAI-compatible API.
 
-当前开发版 **0.2.2** · 已验证 **macOS Apple Silicon / Zotero 10.0.6**。本仓库提供开发分支中的安装文件，尚未创建正式 GitHub Release。
+当前开发版 **0.2.3** · 已验证 **macOS Apple Silicon / Zotero 10.0.6**。本仓库提供开发分支中的安装文件，尚未创建正式 GitHub Release。
 
 ## 看看实际效果
 
@@ -30,7 +30,8 @@ Translate research PDFs into Chinese, switch languages in one Zotero tab, and hi
 - **中文原文直接阅读**：本地抽样识别中文为主的正文，点击“中文”直接阅读原件；工具栏持续显示任务阶段、百分比和耗时，并可直接取消。
 - **全文英译中**：本地 BabelDOC 解析和排版，尽可能保留公式、图表与页面结构；英文原件保留。
 - **同标签中文 / EN 切换**：复用原生阅读器，保存页码、缩放和阅读位置。
-- **PDF 内 AI 重点**：蓝色核心发现，橙色关键数据，紫色有明确依据的方法创新；已有译文也能直接标注。
+- **PDF 内 AI 重点**：阅读器顶部可直接补标；蓝色核心发现，橙色关键数据，紫色有明确依据的方法创新；已有译文也能直接标注。
+- **最多 10 并发**：翻译和重点识别均按设置并行请求，默认 4；设置中可提高到 10，已完成段落和候选批次缓存继续复用。
 - **三档密度**：精简、智能（默认）、充分，按学术重要性筛选，没有固定的每页条数上限。
 - **使用自己的 API**：支持 OpenAI-compatible 服务；自动标注默认关闭，重复标注与切换密度尽可能复用候选缓存。
 
@@ -38,8 +39,8 @@ Translate research PDFs into Chinese, switch languages in one Zotero tab, and hi
 
 **需要安装两部分：Zotero 插件 XPI + 本地 Python/BabelDOC 引擎。仅安装 XPI 还不能翻译。**
 
-1. 下载 [TransYH-0.2.2.xpi](dist/TransYH-0.2.2.xpi?raw=true) 和[完整源码包](dist/TransYH-0.2.2-source.zip?raw=true)。源码包包含本地引擎安装脚本，先解压。
-2. Zotero → **工具 → 插件** → 齿轮菜单 → **从文件安装插件**，选择 XPI。更新时也通过此入口安装，让 Zotero 重新加载插件及配套引擎文件；安装后可在插件管理器核对版本 **0.2.2**。
+1. 下载 [TransYH-0.2.3.xpi](dist/TransYH-0.2.3.xpi?raw=true) 和[完整源码包](dist/TransYH-0.2.3-source.zip?raw=true)。源码包包含本地引擎安装脚本，先解压。
+2. Zotero → **工具 → 插件** → 齿轮菜单 → **从文件安装插件**，选择 XPI。更新时也通过此入口安装，让 Zotero 重新加载插件及配套引擎文件；安装后可在插件管理器核对版本 **0.2.3**。
 3. macOS 安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)；使用 Homebrew 可运行 `brew install uv`。在解压目录中双击 `install-engine.command`，或在该目录的终端运行：
 
    ```bash
@@ -50,7 +51,7 @@ Translate research PDFs into Chinese, switch languages in one Zotero tab, and hi
    脚本安装独立 Python 3.12 环境及 BabelDOC 0.6.4。首次使用还会下载开源版式模型与字体，请准备网络和至少约 1 GB 可用空间，以及处理 PDF 的额外空间。
 4. Zotero → **设置 → TransYH**：先点 **检测本地引擎**，再填写 **API Base URL、API Key、Model**，保存并点 **测试连接**。例如 `https://provider.example/v1`；实际地址和模型由你的服务商提供。
 5. 选中文献或英文 PDF，右键 → **翻译全文 · TransYH**。完成后生成独立中文附件，并在阅读器中显示中文。
-6. 使用顶部 **中文 | EN** 切换。已有中文可右键 → **AI 标注重点**；设置里可开启 **翻译完成后自动标注重点**，并选择标注密度。
+6. 使用顶部 **中文 | EN** 切换。已有中文可点击阅读器顶部 **标注重点**，或右键 → **AI 标注重点**；设置里可开启 **翻译完成后自动标注重点**，并选择标注密度。
 
 Windows 的 `install-engine.ps1` 和 Linux 安装路径已实现，**尚未完成客户端验证**。其他 Python 路径、HTTP 服务授权、重译与故障处理见[详细使用说明](docs/USAGE.md)。更新时手动安装新 XPI，当前没有自动更新服务。
 

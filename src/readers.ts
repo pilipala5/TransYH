@@ -7,6 +7,7 @@ type ReaderTasks = {
   status(item: any): ProgressSnapshot | undefined;
   show(item: any): void;
   cancel(item: any): Promise<void>;
+  highlight(item: any): Promise<any>;
 };
 
 export class ReadingSession {
@@ -34,6 +35,7 @@ export class ReadingSession {
     this.source = originalFor(item);
     this.hostItemID = item.id;
     this.language = this.source.id === item.id ? "en" : "zh";
+    if (this.language === "zh") this.translation = item;
     this.current = this.host = originalPane(reader);
   }
   get active(): NativePane { return this.current; }
@@ -168,6 +170,11 @@ export class ReadingSession {
         box!.appendChild(button);
         if (lang === "zh") { const sep = doc.createElement("span"); sep.textContent = "|"; sep.style.opacity = ".4"; box!.appendChild(sep); }
       }
+      const highlight = doc.createElement("button");
+      highlight.type = "button"; highlight.className = "transyh-highlight"; highlight.textContent = "标注重点";
+      highlight.title = "在现有中文 PDF 中标注科研重点：蓝色发现、橙色数据、紫色创新";
+      highlight.style.cssText = "font:inherit;border:1px solid currentColor;border-radius:4px;background:transparent;color:inherit;padding:2px 5px;cursor:pointer;";
+      highlight.addEventListener("click", () => { void this.tasks?.highlight(this.source).catch(this.report); });
       const status = doc.createElement("button");
       status.type = "button"; status.className = "transyh-status";
       status.setAttribute("aria-live", "polite"); status.setAttribute("aria-atomic", "true");
@@ -180,7 +187,7 @@ export class ReadingSession {
         cancel.disabled = true;
         void this.tasks?.cancel(this.source).catch(this.report);
       });
-      box!.append(status, cancel);
+      box!.append(highlight, status, cancel);
       toolbar.appendChild(box);
       this.controls.push(box!); this.refresh(this.changing);
     };
@@ -202,7 +209,12 @@ export class ReadingSession {
   private forgetPane(pane: NativePane): void { this.paneCleanups.get(pane)?.(); this.paneCleanups.delete(pane); }
   private refresh(busy = false): void {
     const task = this.tasks?.status(this.source);
+    const signature = JSON.stringify([busy, this.language, this.sourceChinese, this.translation?.id, task]);
     for (const box of this.controls) {
+      // Avoid rewriting every idle toolbar once per second. Native view and
+      // accessibility observers otherwise process changes with no new state.
+      if (box.dataset.transyhRender === signature) continue;
+      box.dataset.transyhRender = signature;
       for (const element of box.querySelectorAll("button[data-language]")) {
         const button = element as HTMLButtonElement;
         // Accept a newer intent while loading; one serial switch loop applies it.
@@ -217,6 +229,12 @@ export class ReadingSession {
       }
       const status = box.querySelector<HTMLButtonElement>(".transyh-status");
       const cancel = box.querySelector<HTMLButtonElement>(".transyh-cancel");
+      const highlight = box.querySelector<HTMLButtonElement>(".transyh-highlight");
+      if (highlight) {
+        highlight.hidden = this.language !== "zh" || !this.translation || this.translation.id === this.source.id;
+        highlight.style.display = highlight.hidden ? "none" : "";
+        highlight.disabled = !!task || busy;
+      }
       if (status) {
         status.hidden = !task && !busy && !this.sourceChinese;
         // Zotero's toolbar button styles override the browser's [hidden] rule.

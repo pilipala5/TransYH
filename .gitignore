@@ -12,6 +12,8 @@ dist/*
 !dist/TransYH-0.2.0-source.zip
 !dist/TransYH-0.2.2.xpi
 !dist/TransYH-0.2.2-source.zip
+!dist/TransYH-0.2.3.xpi
+!dist/TransYH-0.2.3-source.zip
 __pycache__/
 .pytest_cache/
 *.pyc

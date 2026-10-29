@@ -6,10 +6,10 @@
       <html:label for="transyh-base">API Base URL</html:label><html:input id="transyh-base" type="url" placeholder="https://your-provider.example/v1"/>
       <html:label for="transyh-key">API Key</html:label><html:input id="transyh-key" type="password" autocomplete="off"/>
       <html:label for="transyh-model">Model</html:label><html:input id="transyh-model" type="text" placeholder="填写服务商提供的模型名称"/>
-      <html:label for="transyh-concurrency">并发请求数</html:label><html:input id="transyh-concurrency" type="number" min="1" max="8" value="4"/>
+      <html:label for="transyh-concurrency">并发请求数</html:label><html:input id="transyh-concurrency" type="number" min="1" max="10" value="4"/>
       <html:label for="transyh-python">Python 路径（可选）</html:label><html:input id="transyh-python" type="text" placeholder="留空以自动检测 TransYH 本地引擎"/>
     </html:div>
-    <html:p>默认同时翻译 4 个段落。若服务商限制并发，可改为 1–2；调用内容和模型保持相同。</html:p>
+    <html:p>翻译与重点识别均支持 1–10 个并发请求，默认 4。可按服务商额度提高并发；保存后对新启动的任务生效。</html:p>
     <html:p><html:label><html:input id="transyh-http" type="checkbox"/> 允许此地址使用 HTTP（明文传输；仅对当前保存地址生效）</html:label></html:p>
     <html:p><html:label title="蓝色：发现；橙色：数据；紫色：创新。使用当前 API，可能产生额外调用费用。"><html:input id="transyh-auto-highlights" type="checkbox"/> 翻译完成后自动标注重点</html:label></html:p>
     <html:p><html:label for="transyh-highlight-density">标注密度 </html:label><html:select id="transyh-highlight-density">

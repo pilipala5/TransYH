@@ -47,7 +47,7 @@ def test_subprocess_protocol_and_no_secret_in_errors(base):
 def test_installed_engine():
     assert worker.check_engine()['version']=='0.6.4'
 
-@pytest.mark.parametrize('value',[0,9,-1,1.5,True,None,'bad'])
+@pytest.mark.parametrize('value',[0,11,-1,1.5,True,None,'bad'])
 def test_concurrency_rejects_invalid_values(value):
     with pytest.raises(worker.UserError) as caught:
         worker.request_concurrency({'concurrency':value})
@@ -56,7 +56,7 @@ def test_concurrency_rejects_invalid_values(value):
 def test_concurrency_default_and_provider_override():
     assert worker.request_concurrency({})==4
     assert worker.request_concurrency({'concurrency':1})==1
-    assert worker.request_concurrency({'concurrency':'8'})==8
+    assert worker.request_concurrency({'concurrency':'10'})==10
 
 def test_global_request_limit_across_multiple_engine_pools(monkeypatch):
     events=[]

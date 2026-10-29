@@ -38,11 +38,11 @@ def request_concurrency(config: dict) -> int:
     value = config.get("concurrency", 4)
     try:
         result = int(value)
-        if isinstance(value, bool) or float(value) != result or not 1 <= result <= 8:
+        if isinstance(value, bool) or float(value) != result or not 1 <= result <= 10:
             raise ValueError
         return result
     except (ValueError, TypeError, OverflowError):
-        raise UserError("CONFIG", "并发请求数应为 1–8 的整数。") from None
+        raise UserError("CONFIG", "并发请求数应为 1–10 的整数。") from None
 
 
 class RequestActivity:

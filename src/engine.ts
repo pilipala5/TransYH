@@ -54,7 +54,7 @@ export class Engine {
   private script = "";
   constructor(private rootURI: string, private credentials: Credentials) {}
   async prepare(): Promise<void> {
-    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.2.2");
+    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.2.3");
     await IOUtils.makeDirectory(dir, { permissions: 0o700, ignoreExisting: true });
     this.script = PathUtils.join(dir, "worker.py");
     for (const name of ["worker.py", "quality.py", "refresh_tasks.py", "highlight_pdf.py", "highlight_jobs.py", "highlight_install.py", "macos_keychain.py"]) {

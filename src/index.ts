@@ -228,7 +228,7 @@ export async function initPreferences(win: any): Promise<void> {
     const base = normalizeBaseURL(candidate, allowedHTTPBase);
     if (!get("model").value.trim()) throw new Error("请填写 Model。");
     const concurrency = Number(get("concurrency").value);
-    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new Error("并发请求数应为 1–8 的整数。");
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 10) throw new Error("并发请求数应为 1–10 的整数。");
     const density = get("highlight-density").value;
     if (!["concise", "smart", "full"].includes(density)) throw new Error("请选择有效的标注密度。");
     await credentials.set(base, get("key").value.trim());
@@ -273,7 +273,7 @@ async function applyPendingSetup(): Promise<void> {
     setPref("baseURL", base); setPref("model", setup.model); setPref("httpAllowedBase", allowedHTTPBase);
     setPref("pythonPath", setup.pythonPath || "");
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
-      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.2" }, { permissions: 0o600 });
+      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.3" }, { permissions: 0o600 });
     await IOUtils.remove(setupFile);
   } catch {
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
@@ -289,7 +289,7 @@ export async function startup(uri: string): Promise<void> {
   catch { notify("部分 AI 标注保存记录需要检查；已有 PDF 和备份保留。", true); }
   await applyPendingSetup();
   readers = new Readers(store, translate, report, {
-    status: translationStatus, show: showTranslationProgress, cancel: cancelTranslation,
+    status: translationStatus, show: showTranslationProgress, cancel: cancelTranslation, highlight: highlightPDF,
   }); readers.start();
   Zotero.TransYH = { translate, retranslate, highlightPDF, cancelTranslation, showTranslationProgress, translationStatus, readers, store, engine, credentials, initPreferences, report };
   await Zotero.PreferencePanes.register({ pluginID: "transyh@local", id: "transyh-preferences", label: "TransYH",
