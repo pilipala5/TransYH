@@ -11,6 +11,7 @@ let rootURI = "";
 let engine: Engine;
 let readers: Readers;
 const tasks = new Map<number, { run: WorkerRun; promise: Promise<any>; progress: TranslationProgress }>();
+const highlightTasks = new Map<number, { run: WorkerRun; promise: Promise<any>; progress: TranslationProgress; committing: boolean }>();
 const cleanups = new Map<any, () => void>();
 
 function notify(message: string, fail = false): void {
@@ -19,13 +20,69 @@ function notify(message: string, fail = false): void {
 }
 function report(error: any): void { notify(error?.message || "操作失败，请重试。", true); }
 export async function cancelTranslation(item: any): Promise<void> {
-  await tasks.get(originalFor(item).id)?.run.cancel();
+  const id = originalFor(item).id;
+  await tasks.get(id)?.run.cancel();
+  const highlight = highlightTasks.get(id);
+  if (highlight && !highlight.committing) await highlight.run.cancel();
 }
-export function showTranslationProgress(item: any): void { tasks.get(originalFor(item).id)?.progress.show(); }
-export function translationStatus(item: any) { return tasks.get(originalFor(item).id)?.progress.snapshot(); }
+export function showTranslationProgress(item: any): void { (highlightTasks.get(originalFor(item).id) || tasks.get(originalFor(item).id))?.progress.show(); }
+export function translationStatus(item: any) { return (highlightTasks.get(originalFor(item).id) || tasks.get(originalFor(item).id))?.progress.snapshot(); }
+const highlightDirectory = () => PathUtils.join(Zotero.DataDirectory.dir, "transyh", "highlights");
+
+async function highlightAttachment(attachment: any, config = engine.config()): Promise<any> {
+  const source = originalFor(attachment);
+  if (source.id === attachment.id) throw new Error("请选择已关联的中文译文；英文 PDF 不会被标注。");
+  if (highlightTasks.has(source.id)) return highlightTasks.get(source.id)!.promise;
+  const run = new WorkerRun(), progress = new TranslationProgress("highlight");
+  const task = { run, progress, committing: false, promise: Promise.resolve<any>(undefined) };
+  task.promise = (async () => {
+    if (!attachment.isImportedAttachment?.() || !attachment.isEditable?.()) throw new Error("仅支持安全更新本地、可编辑的已导入中文附件。");
+    const input = await attachment.getFilePathAsync();
+    const protectedOriginal = await source.getFilePathAsync();
+    if (!input || input === protectedOriginal) throw new Error("中文附件不可用，英文原件未修改。");
+    const directory = highlightDirectory();
+    const outputDir = PathUtils.join(directory, "staging", Services.uuid.generateUUID().toString().slice(1, -1));
+    progress.update({ type: "progress", progress: 0, message: "读取中文 PDF，定位科研重点…" }); progress.show();
+    try {
+      const result = await engine.run("highlight", { ...config, input, protectedOriginal, outputDir,
+        cacheDir: PathUtils.join(directory, "cache") }, event => progress.update(event), run);
+      if (run.cancelled) throw new Error("AI 标注已取消，原译文保留。");
+      if (!result.unchanged) {
+        if (!result.path || !result.sourceFingerprint) throw new Error("AI 标注没有返回可安全保存的 PDF。");
+        // Model work is cancellable; this short backup/atomic commit phase is
+        // allowed to finish, including during orderly plugin shutdown.
+        task.committing = true;
+        const saved = await engine.run("installHighlights", { input, protectedOriginal, candidatePath: result.path,
+          sourceFingerprint: result.sourceFingerprint, installDir: directory });
+        result.backupPath = saved.backupPath;
+        await IOUtils.remove(result.path, { ignoreAbsent: true }).catch(() => {});
+        // Preserve the attachment ID and all Zotero annotation items.
+        attachment.attachmentSyncState = Zotero.Sync.Storage.Local.SYNC_STATE_TO_UPLOAD;
+        await attachment.saveTx();
+        try { await readers.pdfUpdated(attachment); }
+        catch { notify("重点标注已安全保存；阅读器刷新未完成，可重新打开中文附件。", true); }
+      }
+      progress.finish(false, result.highlightCount ? (result.unchanged ? `已复用 ${result.highlightCount} 处重点，未重复请求或叠加标注。`
+        : `已标注 ${result.highlightCount} 处重点；原译文备份保留，请核对证据。`)
+        : "没有充分证据可标注，原译文保持可读。");
+      return result;
+    } catch (error) { progress.close(); throw error; }
+  })().finally(() => highlightTasks.delete(source.id));
+  highlightTasks.set(source.id, task);
+  return task.promise;
+}
+
+export async function highlightPDF(item: any): Promise<any> {
+  const source = originalFor(item);
+  if (tasks.has(source.id)) await tasks.get(source.id)!.promise;
+  const attachment = await translatedFor(source);
+  if (!attachment) throw new Error("尚无可用中文 PDF，请先翻译全文。");
+  return highlightAttachment(attachment);
+}
 export async function retranslate(item: any): Promise<any> { return translate(item, { refresh: true }); }
 export async function translate(item: any, options: { refresh?: boolean } = {}): Promise<any> {
   const source = originalFor(item);
+  if (highlightTasks.has(source.id)) await highlightTasks.get(source.id)!.promise.catch(() => {});
   if (tasks.has(source.id)) { showTranslationProgress(source); return tasks.get(source.id)!.promise; }
   const run = new WorkerRun();
   const progress = new TranslationProgress();
@@ -68,6 +125,10 @@ export async function translate(item: any, options: { refresh?: boolean } = {}):
       }
       // Imported attachment owns its own copy; remove the generated duplicate.
       await IOUtils.remove(result.path, { ignoreAbsent: true }).catch(() => {});
+      if (pref("autoHighlights") === "true" && !run.cancelled) {
+        try { await highlightAttachment(attachment, config); }
+        catch { notify("中文译文已保存；AI 重点标注未完成，原译文和批注保留，可稍后重试。", true); }
+      }
       progress.finish(result.quality?.status === "suspect");
       if (options.refresh) {
         // A reader error does not roll back a valid, already imported PDF.
@@ -115,18 +176,28 @@ export function onMainWindowLoad(win: any): void {
   const cancel = doc.createXULElement("menuitem");
   cancel.id = "transyh-cancel"; cancel.setAttribute("label", "取消全文翻译 · TransYH");
   cancel.addEventListener("command", async () => { for (const pdf of await selectedPDFs(win)) await cancelTranslation(pdf); });
+  const highlight = doc.createXULElement("menuitem");
+  highlight.id = "transyh-highlight"; highlight.setAttribute("label", "AI 标注重点");
+  highlight.addEventListener("command", async () => {
+    for (const pdf of await selectedPDFs(win)) {
+      try { await highlightPDF(pdf); await readers.showChinese(pdf); } catch (error) { report(error); }
+    }
+  });
   const settings = doc.createXULElement("menuitem");
   settings.setAttribute("label", "TransYH 设置…");
   settings.addEventListener("command", () => Zotero.Utilities.Internal.openPreferences("transyh-preferences"));
   const update = async () => {
     const pdfs = await selectedPDFs(win);
-    translateMenu.hidden = !pdfs.length; cancel.hidden = !pdfs.some(p => tasks.has(p.id));
+    const busy = (p: any) => tasks.has(p.id) || highlightTasks.has(p.id);
+    translateMenu.hidden = !pdfs.length; cancel.hidden = !pdfs.some(busy);
+    cancel.setAttribute("label", pdfs.some(p => highlightTasks.has(p.id)) ? "取消 AI 标注 · TransYH" : "取消全文翻译 · TransYH");
     translateMenu.setAttribute("label", pdfs.some(p => tasks.has(p.id)) ? "查看翻译进度 · TransYH" : "翻译全文 · TransYH");
     refreshMenu.hidden = !pdfs.length || !(await Promise.all(pdfs.map(p => translatedFor(p).catch(() => undefined)))).some(Boolean);
-    refreshMenu.disabled = pdfs.some(p => tasks.has(p.id));
+    refreshMenu.disabled = pdfs.some(busy);
+    highlight.hidden = refreshMenu.hidden; highlight.disabled = pdfs.some(busy);
   };
-  menu.append(translateMenu, refreshMenu, cancel, settings); menu.addEventListener("popupshowing", update);
-  cleanups.set(win, () => { menu.removeEventListener("popupshowing", update); translateMenu.remove(); refreshMenu.remove(); cancel.remove(); settings.remove(); });
+  menu.append(translateMenu, refreshMenu, highlight, cancel, settings); menu.addEventListener("popupshowing", update);
+  cleanups.set(win, () => { menu.removeEventListener("popupshowing", update); translateMenu.remove(); refreshMenu.remove(); highlight.remove(); cancel.remove(); settings.remove(); });
 }
 export function onMainWindowUnload(win: any): void { cleanups.get(win)?.(); cleanups.delete(win); }
 
@@ -137,6 +208,7 @@ export async function initPreferences(win: any): Promise<void> {
   get("base").dataset.transyhInitialized = "true";
   get("base").value = pref("baseURL"); get("model").value = pref("model"); get("python").value = pref("pythonPath");
   get("concurrency").value = pref("concurrency", "4");
+  get("auto-highlights").checked = pref("autoHighlights") === "true";
   get("http").checked = !!pref("httpAllowedBase") && pref("httpAllowedBase") === pref("baseURL");
   const status = (message: string) => { get("status").textContent = message; };
   let oldBase = pref("baseURL");
@@ -152,6 +224,7 @@ export async function initPreferences(win: any): Promise<void> {
     setPref("httpAllowedBase", allowedHTTPBase);
     setPref("baseURL", base); setPref("model", get("model").value.trim()); setPref("pythonPath", get("python").value.trim());
     setPref("concurrency", String(concurrency));
+    setPref("autoHighlights", String(get("auto-highlights").checked));
     oldBase = base; get("base").value = base;
   };
   get("save").addEventListener("click", async () => { try { await save(); status("已保存。API Key 保存在本地凭据管理器。"); } catch (e: any) { status(e.message); } });
@@ -188,7 +261,7 @@ async function applyPendingSetup(): Promise<void> {
     setPref("baseURL", base); setPref("model", setup.model); setPref("httpAllowedBase", allowedHTTPBase);
     setPref("pythonPath", setup.pythonPath || "");
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
-      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.1.4" }, { permissions: 0o600 });
+      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.0" }, { permissions: 0o600 });
     await IOUtils.remove(setupFile);
   } catch {
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
@@ -200,15 +273,19 @@ export async function startup(uri: string): Promise<void> {
   rootURI = uri;
   await store.init();
   engine = new Engine(rootURI, credentials); await engine.prepare();
+  try { await engine.run("recoverHighlights", { installDir: highlightDirectory() }); }
+  catch { notify("部分 AI 标注保存记录需要检查；已有 PDF 和备份保留。", true); }
   await applyPendingSetup();
   readers = new Readers(store, translate, report); readers.start();
-  Zotero.TransYH = { translate, retranslate, cancelTranslation, showTranslationProgress, translationStatus, readers, store, engine, credentials, initPreferences, report };
+  Zotero.TransYH = { translate, retranslate, highlightPDF, cancelTranslation, showTranslationProgress, translationStatus, readers, store, engine, credentials, initPreferences, report };
   await Zotero.PreferencePanes.register({ pluginID: "transyh@local", id: "transyh-preferences", label: "TransYH",
     src: rootURI + "content/preferences.xhtml", scripts: [rootURI + "content/preferences.js"] });
   for (const win of Zotero.getMainWindows()) onMainWindowLoad(win);
 }
 export async function shutdown(): Promise<void> {
   for (const task of tasks.values()) await task.run.cancel();
+  for (const task of highlightTasks.values()) if (!task.committing) await task.run.cancel();
+  await Promise.allSettled([...highlightTasks.values()].map(task => task.promise));
   await Promise.allSettled([...tasks.values()].map(task => task.promise));
   await readers?.stop(); await store.flush();
   for (const cleanup of cleanups.values()) cleanup(); cleanups.clear();

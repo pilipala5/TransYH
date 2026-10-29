@@ -70,6 +70,17 @@ export class NativePane {
     viewer.update();
   }
   focus(): void { this.win.focus(); this.internal.focus?.(); }
+  async reloadFile(item: any, cancelled = () => false): Promise<void> {
+    const native = unwrap(this.internal);
+    if (typeof native?.reload !== "function") throw new Error("当前原生阅读器无法刷新 PDF，请重新打开中文附件。");
+    const oldTask = this.pdf?.pdfLoadingTask;
+    // Native reload retains its annotation manager. Explicitly release the
+    // replaced primary view/task, which reload() itself does not destroy.
+    await native._primaryView?.destroy?.();
+    await oldTask?.destroy?.();
+    native.reload(clone({ url: `zotero://attachment/${Zotero.API.getLibraryPrefix(item.libraryID)}/items/${item.key}/` }, this.win));
+    await this.ready(cancelled);
+  }
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;

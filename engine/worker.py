@@ -325,6 +325,29 @@ async def translate(config: dict):
         translator.client.close()
 
 
+def highlight_action(action, config):
+    import openai
+    from highlight_pdf import HighlightError
+    try:
+        if action == "highlight":
+            from highlight_jobs import highlights
+            config = {**config,"baseURL":normalize_base(config.get("baseURL",""),config.get("allowedHTTPBase",""))}
+            if not config.get("model","").strip():raise HighlightError("请先填写 Model。")
+            return highlights(config, emit)
+        from highlight_install import install, recover
+        return install(config) if action == "installHighlights" else recover(config["installDir"])
+    except HighlightError as error:
+        raise UserError("HIGHLIGHT", str(error)) from None
+    except openai.APIStatusError as error:
+        raise status_error(error.status_code) from None
+    except openai.APITimeoutError:
+        raise UserError("TIMEOUT","AI 标注请求超时，原译文保留，可重试复用已完成的识别缓存。") from None
+    except openai.APIConnectionError:
+        raise UserError("NETWORK","AI 标注无法连接 API，原译文保留，请检查网络后重试。") from None
+    except Exception:
+        raise UserError("HIGHLIGHT","AI 标注或安全保存未完成，原译文与已有备份保留，请检查后重试。") from None
+
+
 def main():
     # Third-party loggers can include provider error bodies. Suppress them, along
     # with accidental prints; stdout is exclusively the structured safe protocol.
@@ -343,6 +366,8 @@ def main():
             result = asyncio.run(translate(config))
         elif action in ("prepareRefresh", "completeRefresh"):
             result = refresh_task(action, config)
+        elif action in ("highlight", "installHighlights", "recoverHighlights"):
+            result = highlight_action(action, config)
         else:
             raise UserError("PROTOCOL", "未知引擎操作。")
     emit("done", **result)

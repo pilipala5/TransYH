@@ -3,12 +3,14 @@ import { Credentials, pref } from "./storage";
 
 export type EngineEvent = { type: string; message?: string; progress?: number; path?: string; code?: string; version?: string; apiKey?: string;
   refreshToken?: string; taskVersion?: string; resumed?: boolean;
+  unchanged?: boolean; installed?: boolean; highlightCount?: number; cachedBatches?: number;
+  sourceFingerprint?: string; backupPath?: string; recoveredTransactions?: number;
   quality?: { status: "pass" | "suspect" | "structural_error"; issues: { code: string; page?: number; count: number }[] }; qualityReport?: string;
   requests?: number; completedRequests?: number; activeRequests?: number; cachedParagraphs?: number };
 export class WorkerRun {
   private process: any;
   cancelled = false;
-  async cancel(): Promise<void> { this.cancelled = true; if (this.process) await this.process.kill(1000); }
+  async cancel(): Promise<void> { this.cancelled = true; try { if (this.process) await this.process.kill(1000); } catch { /* process already exited */ } }
   async execute(python: string, script: string, payload: any, update: (event: EngineEvent) => void): Promise<EngineEvent> {
     const { Subprocess } = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs");
     try {
@@ -51,10 +53,10 @@ export class Engine {
   private script = "";
   constructor(private rootURI: string, private credentials: Credentials) {}
   async prepare(): Promise<void> {
-    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.1.4");
+    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.2.0");
     await IOUtils.makeDirectory(dir, { permissions: 0o700, ignoreExisting: true });
     this.script = PathUtils.join(dir, "worker.py");
-    for (const name of ["worker.py", "quality.py", "refresh_tasks.py", "macos_keychain.py"]) {
+    for (const name of ["worker.py", "quality.py", "refresh_tasks.py", "highlight_pdf.py", "highlight_jobs.py", "highlight_install.py", "macos_keychain.py"]) {
       await IOUtils.writeUTF8(PathUtils.join(dir, name), Zotero.File.getContentsFromURL(this.rootURI + "engine/" + name), { permissions: 0o600 });
     }
   }
@@ -77,7 +79,7 @@ export class Engine {
       concurrency: Number(pref("concurrency", "4")) };
   }
   async run(action: string, extra: any = {}, update = (_event: EngineEvent) => {}, run = new WorkerRun()): Promise<EngineEvent> {
-    const config = ["check", "readCredential"].includes(action) ? {} : this.config();
+    const config = ["check", "readCredential", "installHighlights", "recoverHighlights"].includes(action) ? {} : this.config();
     return run.execute(await this.python(), this.script, { action, ...config, ...extra }, update);
   }
 }

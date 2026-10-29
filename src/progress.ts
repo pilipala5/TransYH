@@ -2,6 +2,7 @@ import { ProgressWindowHelper } from "zotero-plugin-toolkit";
 import type { EngineEvent } from "./engine";
 
 export class TranslationProgress {
+  constructor(private kind: "translation" | "highlight" = "translation") {}
   private popup?: ProgressWindowHelper;
   private timer: any;
   private startedAt = Date.now();
@@ -16,7 +17,7 @@ export class TranslationProgress {
     // Recreate a dismissed popup from current state; native progress windows
     // cannot reliably reattach their old ItemProgress objects after closing.
     this.popup?.close();
-    this.popup = new ProgressWindowHelper("TransYH · 翻译全文", {
+    this.popup = new ProgressWindowHelper(this.kind === "highlight" ? "TransYH · AI 标注重点" : "TransYH · 翻译全文", {
       window: Zotero.getMainWindow(), closeOnClick: false, closeTime: -1,
     }).createLine({ text: this.message, progress: this.percent })
       .createLine({ text: this.details(), progress: 100 }).show(-1);
@@ -33,6 +34,7 @@ export class TranslationProgress {
     if (typeof event.completedRequests === "number") this.completedRequests = event.completedRequests;
     if (typeof event.activeRequests === "number") this.activeRequests = event.activeRequests;
     if (typeof event.cachedParagraphs === "number") this.cachedParagraphs = event.cachedParagraphs;
+    if (typeof event.cachedBatches === "number") this.cachedParagraphs = event.cachedBatches;
     this.render();
   }
 
@@ -57,10 +59,10 @@ export class TranslationProgress {
     this.popup?.changeLine({ idx: 1, text: this.details() });
   }
 
-  finish(suspect = false): void {
+  finish(suspect = false, message?: string): void {
     clearInterval(this.timer); this.timer = undefined;
-    this.message = suspect ? "译文已保存，存在疑似问题，请核对。质量报告保存在本地。"
-      : "翻译完成，中文 PDF 已保存为附件。"; this.percent = 100;
+    this.message = message || (suspect ? "译文已保存，存在疑似问题，请核对。质量报告保存在本地。"
+      : "翻译完成，中文 PDF 已保存为附件。"); this.percent = 100;
     this.render();
     this.popup?.changeLine({ icon: "chrome://zotero/skin/16/universal/tick.svg", progress: 100 });
     this.popup?.startCloseTimer(suspect ? 12000 : 5000);

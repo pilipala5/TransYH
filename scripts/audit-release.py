@@ -10,10 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT/'package.json').read_text())['version']
 XPI_FILES = {'manifest.json','bootstrap.js','content/transyh.js','content/preferences.js','content/preferences.xhtml',
              'engine/worker.py','engine/quality.py','engine/refresh_tasks.py','engine/macos_keychain.py','engine/requirements.txt',
+             'engine/highlight_pdf.py','engine/highlight_jobs.py','engine/highlight_install.py',
              'engine/requirements-macos.lock','LICENSE','THIRD_PARTY_NOTICES.md'}
 FIXTURES = {'tests/fixtures/paper-english.pdf','tests/fixtures/switch-chinese.pdf'}
 FORBIDDEN = {'.test-profile','.test-data','.test-runtime','.research','.venv','node_modules','__pycache__',
-             '.pytest_cache','output','jobs','cache','retranslation','refresh-tasks.sqlite3','logins.json','key4.db','cert9.db','reading.json','quality-report.json'}
+             '.pytest_cache','output','jobs','cache','retranslation','transactions','backups','highlight-cache.sqlite3','refresh-tasks.sqlite3','logins.json','key4.db','cert9.db','reading.json','quality-report.json'}
 SECRET = re.compile(rb'sk-(?:proj-)?[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----')
 errors = []
 

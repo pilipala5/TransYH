@@ -83,7 +83,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(307);self.send_header('Location','http://127.0.0.1:1/leak');self.end_headers();return
         if not self.path.endswith('/chat/completions'):self.reply(404,{});return
         text=data['messages'][-1]['content']
-        if '## Here is the input:' in text:
+        if any('严谨的学术论文精读助手' in m.get('content','') for m in data['messages']):
+            # Deliberately scripted candidates, not an AI accuracy evaluation.
+            from highlight_fixtures import GOLD
+            payload=json.loads(text)
+            highlights=[]
+            for paragraph in payload['paragraphs']:
+                for gold in GOLD:
+                    if gold['quote'] in paragraph['text']:
+                        highlights.append({'paragraph_id':paragraph['paragraph_id'],'quote':gold['quote'],
+                            'type':gold['type'] or ('innovation' if gold['id']=='routine' else 'finding'), 'confidence':.99})
+            output=json.dumps({'highlights':highlights},ensure_ascii=False)
+            if model.startswith('fixture-highlight-invalid'):output='not valid JSON'
+        elif '## Here is the input:' in text:
             rows=json.loads(text.split('## Here is the input:')[-1])
             output=json.dumps([{'id':row['id'],'output':fixture_translation(row['input'])} for row in rows],ensure_ascii=False)
         elif 'Input:\n\n' in text:output=fixture_translation(text.split('Input:\n\n')[-1])
