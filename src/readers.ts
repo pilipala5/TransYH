@@ -1,6 +1,14 @@
 import { NativePane, createPane, originalPane } from "./reader-compat";
 import { Store, originalFor, translatedFor, type SavedReading } from "./storage";
 import type { Language, ViewState } from "./core";
+import type { ProgressSnapshot } from "./progress";
+
+type ReaderTasks = {
+  status(item: any): ProgressSnapshot | undefined;
+  show(item: any): void;
+  cancel(item: any): Promise<void>;
+  highlight(item: any): Promise<any>;
+};
 
 export class ReadingSession {
   public source: any;
@@ -20,11 +28,14 @@ export class ReadingSession {
   private paneCleanups = new Map<NativePane, () => void>();
   private saveTimer: any;
   private lastReading?: SavedReading;
-  constructor(public reader: any, private store: Store, private translate: (item: any) => Promise<any>, private report: (e: any) => void) {
+  private sourceChinese = false;
+  constructor(public reader: any, private store: Store, private translate: (item: any) => Promise<any>, private report: (e: any) => void,
+    private tasks?: ReaderTasks) {
     const item = Zotero.Items.get(reader.itemID);
     this.source = originalFor(item);
     this.hostItemID = item.id;
     this.language = this.source.id === item.id ? "en" : "zh";
+    if (this.language === "zh") this.translation = item;
     this.current = this.host = originalPane(reader);
   }
   get active(): NativePane { return this.current; }
@@ -41,7 +52,7 @@ export class ReadingSession {
     this.save();
     // Native view events save changes promptly. This cheap fallback covers
     // Zotero versions that do not expose those events; Store deduplicates it.
-    this.saveTimer = setInterval(() => this.save(), 1000);
+    this.saveTimer = setInterval(() => { this.save(); this.refresh(this.changing); }, 1000);
   }
   switchTo(language: Language, restore?: ViewState, refresh = false): Promise<void> {
     if (this.disposed) return Promise.resolve();
@@ -93,10 +104,10 @@ export class ReadingSession {
     if (this.disposed || (language === this.language && !refresh && !saved)) return;
     this.refresh(true);
     const state = saved || this.active.capture();
-    let target = language === "en" ? this.source : this.translation || await translatedFor(this.source);
-    if (!target) target = await this.translate(this.source);
+    const target = language === "en" ? this.source : this.translation || await this.translate(this.source);
     if (!target || this.disposed) return;
     if (language === "zh") this.translation = target;
+    if (language === "zh" && target.id === this.source.id) this.sourceChinese = true;
     const previous = this.active;
     const oldOther = this.other;
     let next: NativePane | undefined;
@@ -109,7 +120,7 @@ export class ReadingSession {
         created = true;
       }
       if (this.disposed) return;
-      if (next === previous && !saved) return;
+      if (next === previous && !saved) { this.language = language; return; }
       next.browser.hidden = false;
       if (next !== previous) next.browser.style.cssText = "position:absolute;inset:0;width:100%;height:100%;visibility:visible;opacity:0;pointer-events:none;";
       await next.restore(state);
@@ -152,10 +163,31 @@ export class ReadingSession {
         button.textContent = lang === "zh" ? "中文" : "EN";
         button.title = lang === "zh" ? "切换中文；尚无译文时翻译全文" : "切换英文原文";
         button.style.cssText = "font:inherit;border:0;border-radius:4px;padding:4px 6px;cursor:pointer;background:transparent;color:inherit;";
-        button.addEventListener("click", () => this.switchTo(lang).catch(this.report));
+        button.addEventListener("click", () => {
+          if (lang === "zh" && this.tasks?.status(this.source)) { this.tasks.show(this.source); return; }
+          void this.switchTo(lang).catch(this.report);
+        });
         box!.appendChild(button);
         if (lang === "zh") { const sep = doc.createElement("span"); sep.textContent = "|"; sep.style.opacity = ".4"; box!.appendChild(sep); }
       }
+      const highlight = doc.createElement("button");
+      highlight.type = "button"; highlight.className = "transyh-highlight"; highlight.textContent = "标注重点";
+      highlight.title = "在现有中文 PDF 中标注科研重点：蓝色发现、橙色数据、紫色创新";
+      highlight.style.cssText = "font:inherit;border:1px solid currentColor;border-radius:4px;background:transparent;color:inherit;padding:2px 5px;cursor:pointer;";
+      highlight.addEventListener("click", () => { void this.tasks?.highlight(this.source).catch(this.report); });
+      const status = doc.createElement("button");
+      status.type = "button"; status.className = "transyh-status";
+      status.setAttribute("aria-live", "polite"); status.setAttribute("aria-atomic", "true");
+      status.style.cssText = "font:inherit;border:0;background:transparent;color:inherit;padding:4px 6px;max-width:310px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;";
+      status.addEventListener("click", () => this.tasks?.show(this.source));
+      const cancel = doc.createElement("button");
+      cancel.type = "button"; cancel.className = "transyh-cancel"; cancel.textContent = "取消";
+      cancel.style.cssText = "font:inherit;border:1px solid currentColor;border-radius:4px;background:transparent;color:inherit;padding:2px 5px;cursor:pointer;";
+      cancel.addEventListener("click", () => {
+        cancel.disabled = true;
+        void this.tasks?.cancel(this.source).catch(this.report);
+      });
+      box!.append(highlight, status, cancel);
       toolbar.appendChild(box);
       this.controls.push(box!); this.refresh(this.changing);
     };
@@ -176,13 +208,49 @@ export class ReadingSession {
   }
   private forgetPane(pane: NativePane): void { this.paneCleanups.get(pane)?.(); this.paneCleanups.delete(pane); }
   private refresh(busy = false): void {
-    for (const box of this.controls) for (const element of box.querySelectorAll("button")) {
-      const button = element as HTMLButtonElement;
-      // Accept a newer intent while loading; one serial switch loop applies it.
-      button.setAttribute("aria-busy", String(busy));
-      button.setAttribute("aria-pressed", String(button.dataset.language === this.language));
-      button.style.fontWeight = button.dataset.language === this.language ? "700" : "400";
-      button.style.background = button.dataset.language === this.language ? "rgba(70,120,200,.18)" : "transparent";
+    const task = this.tasks?.status(this.source);
+    const signature = JSON.stringify([busy, this.language, this.sourceChinese, this.translation?.id, task]);
+    for (const box of this.controls) {
+      // Avoid rewriting every idle toolbar once per second. Native view and
+      // accessibility observers otherwise process changes with no new state.
+      if (box.dataset.transyhRender === signature) continue;
+      box.dataset.transyhRender = signature;
+      for (const element of box.querySelectorAll("button[data-language]")) {
+        const button = element as HTMLButtonElement;
+        // Accept a newer intent while loading; one serial switch loop applies it.
+        button.setAttribute("aria-busy", String(busy));
+        button.setAttribute("aria-pressed", String(button.dataset.language === this.language));
+        button.style.fontWeight = button.dataset.language === this.language ? "700" : "400";
+        button.style.background = button.dataset.language === this.language ? "rgba(70,120,200,.18)" : "transparent";
+        if (button.dataset.language === "zh") {
+          button.textContent = task ? (task.kind === "highlight" ? "标注中…" : "翻译中…") : "中文";
+          button.title = task ? "查看当前任务进度" : this.sourceChinese ? "原文已是中文，无需翻译" : "切换中文；尚无译文时翻译全文";
+        } else if (this.sourceChinese) { button.textContent = "原文"; button.title = "原文已是中文"; }
+      }
+      const status = box.querySelector<HTMLButtonElement>(".transyh-status");
+      const cancel = box.querySelector<HTMLButtonElement>(".transyh-cancel");
+      const highlight = box.querySelector<HTMLButtonElement>(".transyh-highlight");
+      if (highlight) {
+        highlight.hidden = this.language !== "zh" || !this.translation || this.translation.id === this.source.id;
+        highlight.style.display = highlight.hidden ? "none" : "";
+        highlight.disabled = !!task || busy;
+      }
+      if (status) {
+        status.hidden = !task && !busy && !this.sourceChinese;
+        // Zotero's toolbar button styles override the browser's [hidden] rule.
+        status.style.display = status.hidden ? "none" : "";
+        const seconds = task?.elapsedSeconds || 0;
+        const time = seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+        status.textContent = task ? `${Math.round(task.progress)}% · ${task.message} · ${time}`
+          : busy ? "正在切换…" : this.sourceChinese ? "原文已是中文，无需翻译" : "";
+        status.title = task ? `${status.textContent}\nAPI 已完成 ${task.completedRequests} 次 · 正在请求 ${task.activeRequests} 个 · 缓存命中 ${task.cachedParagraphs} 次\n点击查看详细进度`
+          : status.textContent;
+        status.disabled = !task;
+      }
+      if (cancel) {
+        cancel.hidden = !task; cancel.style.display = task ? "" : "none";
+        if (!task) cancel.disabled = false;
+      }
     }
   }
   save(): void {
@@ -217,7 +285,8 @@ export class Readers {
   private handler: any;
   private timer: any;
   private stopped = false;
-  constructor(private store: Store, private translate: (item: any) => Promise<any>, private report: (e: any) => void) {}
+  constructor(private store: Store, private translate: (item: any) => Promise<any>, private report: (e: any) => void,
+    private tasks?: ReaderTasks) {}
   attach(reader: any): Promise<ReadingSession | undefined> {
     if (this.stopped || !reader.tabID || reader.type !== "pdf") return Promise.resolve(undefined);
     const pending = this.registering.get(reader.tabID);
@@ -226,7 +295,7 @@ export class Readers {
     const promise = (async () => {
       await reader._initPromise;
       if (this.stopped || !reader._iframe?.isConnected) return;
-      const session = new ReadingSession(reader, this.store, this.translate, this.report);
+      const session = new ReadingSession(reader, this.store, this.translate, this.report, this.tasks);
       this.sessions.set(reader.tabID, session);
       try { await session.init(); } catch (e) {
         this.sessions.delete(reader.tabID); await session.dispose();

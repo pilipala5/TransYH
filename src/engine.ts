@@ -2,6 +2,7 @@ import { normalizeBaseURL } from "./core";
 import { Credentials, pref } from "./storage";
 
 export type EngineEvent = { type: string; message?: string; progress?: number; path?: string; code?: string; version?: string; apiKey?: string;
+  language?: "zh" | "unknown"; pages?: number;
   refreshToken?: string; taskVersion?: string; resumed?: boolean;
   unchanged?: boolean; installed?: boolean; highlightCount?: number; cachedBatches?: number;
   sourceFingerprint?: string; backupPath?: string; recoveredTransactions?: number;
@@ -53,7 +54,7 @@ export class Engine {
   private script = "";
   constructor(private rootURI: string, private credentials: Credentials) {}
   async prepare(): Promise<void> {
-    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.2.0");
+    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.2.3");
     await IOUtils.makeDirectory(dir, { permissions: 0o700, ignoreExisting: true });
     this.script = PathUtils.join(dir, "worker.py");
     for (const name of ["worker.py", "quality.py", "refresh_tasks.py", "highlight_pdf.py", "highlight_jobs.py", "highlight_install.py", "macos_keychain.py"]) {
@@ -79,7 +80,7 @@ export class Engine {
       concurrency: Number(pref("concurrency", "4")) };
   }
   async run(action: string, extra: any = {}, update = (_event: EngineEvent) => {}, run = new WorkerRun()): Promise<EngineEvent> {
-    const config = ["check", "readCredential", "installHighlights", "recoverHighlights"].includes(action) ? {} : this.config();
+    const config = ["check", "inspect", "readCredential", "installHighlights", "recoverHighlights"].includes(action) ? {} : this.config();
     return run.execute(await this.python(), this.script, { action, ...config, ...extra }, update);
   }
 }

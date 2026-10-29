@@ -1,11 +1,13 @@
 """Own-key AI selection and local offset cache. Network content never enters logs."""
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import hashlib
 import json
 import os
 from pathlib import Path
 import sqlite3
+import threading
 import uuid
 
 import pymupdf
@@ -77,6 +79,13 @@ def config_identity(config):
 def highlights(config, update=lambda *args, **kwargs: None):
     import httpx
     import openai
+    try:
+        value = config.get("concurrency", 4)
+        concurrency = int(value)
+        if isinstance(value, bool) or float(value) != concurrency or not 1 <= concurrency <= 10:
+            raise ValueError
+    except (ValueError, TypeError, OverflowError):
+        raise HighlightError("并发请求数应为 1–10 的整数。") from None
     source = Path(config["input"])
     if config.get('protectedOriginal') and os.path.samefile(source, config['protectedOriginal']):
         raise HighlightError('中文附件指向英文原件，未执行标注。')
@@ -104,21 +113,50 @@ def highlights(config, update=lambda *args, **kwargs: None):
             packet.append(paragraph);length+=len(paragraph["text"])
         if packet:batches.append(packet)
     records, cached, requests, skipped = [], 0, 0, 0
+    results, missing = {}, []
+    stats = {"requests": 0, "completedRequests": 0, "activeRequests": 0}
+    stats_lock = threading.Lock()
+    finished = 0
+
+    def report(progress=False):
+        with stats_lock:
+            counters = dict(stats)
+        counters["cachedBatches"] = cached
+        if progress:
+            update("progress", progress=round(90 * finished / max(1, len(batches)), 1),
+                   message=f"识别与核对科研重点（{finished} / {len(batches)} 批）…", **counters)
+        else:
+            update("activity", **counters)
+
     cache = Cache(config["cacheDir"])
     try:
+        for index, batch in enumerate(batches):
+            identifiers = [p["paragraph_id"] for p in batch]
+            key = hashlib.sha256(json.dumps([base_id,text_id,candidate_id,identifiers],separators=(",",":")).encode()).hexdigest()
+            saved = cache.get(key)
+            if saved is None:
+                missing.append((index, batch, key))
+            else:
+                results[index] = saved
+                cached += 1
+                finished += 1
+        report(progress=True)
+
         # OpenAI SDK is reused with the same endpoint/key and redirect boundary.
         with openai.OpenAI(base_url=config["baseURL"], api_key=config.get("apiKey") or "local-no-key",
                 max_retries=0, http_client=httpx.Client(timeout=float(config.get("timeout",120)), follow_redirects=False)) as client:
-            for index, batch in enumerate(batches):
+            def identify(batch):
                 identifiers = [p["paragraph_id"] for p in batch]
-                key = hashlib.sha256(json.dumps([base_id,text_id,candidate_id,identifiers],separators=(",",":")).encode()).hexdigest()
-                saved = cache.get(key)
-                if saved is None:
+                with stats_lock:
+                    stats["requests"] += 1
+                    stats["activeRequests"] += 1
+                report()
+                success = False
+                try:
                     payload = [{"paragraph_id":p["paragraph_id"],"page":p["page"],"section":p["section"],"text":p["text"]} for p in batch]
                     response = client.chat.completions.create(model=config["model"],messages=[
                         {"role":"system","content":PROMPT},
                         {"role":"user","content":json.dumps({"paragraphs":payload},ensure_ascii=False)}])
-                    requests += 1
                     try:
                         content = response.choices[0].message.content
                         if not isinstance(content,str) or len(content) > 200000:raise ValueError
@@ -134,12 +172,53 @@ def highlights(config, update=lambda *args, **kwargs: None):
                     # Keep the full evidence-checked pool, including supporting
                     # results. Changing reader density never needs another call.
                     saved, rejected = validate_candidates(paragraphs,candidates,density="full")
-                    skipped += sum(rejected.values())
-                    cache.put(key,saved)
-                else:cached+=1
-                records.extend(saved)
-                update("progress",progress=round(90*(index+1)/max(1,len(batches)),1),
-                       message="识别与核对科研重点…",requests=requests,cachedBatches=cached)
+                    success = True
+                    return saved, sum(rejected.values())
+                finally:
+                    with stats_lock:
+                        stats["activeRequests"] -= 1
+                        stats["completedRequests"] += int(success)
+                    report()
+
+            # Keep at most the configured number in flight. Cache writes stay
+            # on this thread; completed batches survive a later API failure.
+            # Concurrency changes neither the prompt nor the cache identity.
+            remaining = iter(missing)
+            failure = None
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                inflight = {}
+
+                def schedule():
+                    job = next(remaining, None)
+                    if job is not None:
+                        inflight[pool.submit(identify, job[1])] = job
+
+                for _ in range(min(concurrency, len(missing))):
+                    schedule()
+                while inflight:
+                    done, _ = wait(inflight, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        index, batch, key = inflight.pop(future)
+                        try:
+                            saved, rejected = future.result()
+                            cache.put(key, saved)
+                            results[index] = saved
+                            skipped += rejected
+                            finished += 1
+                            report(progress=True)
+                        except Exception as error:
+                            if failure is None:
+                                failure = error
+                    # After a failure, drain existing requests into the cache
+                    # and stop launching additional batches.
+                    if failure is None:
+                        for _ in done:
+                            schedule()
+                if failure is not None:
+                    raise failure
+        requests = stats["requests"]
+        for index in range(len(batches)):
+            records.extend(results[index])
     finally:cache.close()
     # Recheck source mapping/overlap across batches, then select importance.
     by_id={p["paragraph_id"]:p for p in paragraphs}

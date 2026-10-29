@@ -235,6 +235,21 @@ def test_partial_ai_failure_preserves_input_and_resumes_completed_batch(paper,tm
     assert paper.read_bytes()==before
 
 
+def test_parallel_highlights_obey_limit_and_reuse_cache_after_concurrency_change(paper,tmp_path,highlight_base):
+    from highlight_jobs import highlights
+    from mock_api import Handler
+    config={**config_for(paper,tmp_path,highlight_base),'concurrency':2}
+    Handler.controls[config['model']]={'delay':.2}
+    events=[]
+    result=highlights(config,lambda kind,**data:events.append(data))
+    assert result['highlightCount']==3 and result['requests']==3
+    assert Handler.metrics[config['model']]['peakConcurrent']==2
+    assert max(event.get('activeRequests',0) for event in events)==2
+    again=highlights({**config,'concurrency':10})
+    assert again['requests']==0 and again['cachedBatches']==3
+    assert Handler.metrics[config['model']]['calls']==3
+
+
 @pytest.mark.parametrize('changed',['model','baseURL','prompt'])
 def test_highlight_cache_is_isolated_by_model_service_and_prompt(paper,tmp_path,highlight_base,changed,monkeypatch):
     import highlight_jobs as jobs

@@ -1,6 +1,8 @@
 import { ProgressWindowHelper } from "zotero-plugin-toolkit";
 import type { EngineEvent } from "./engine";
 
+export type ProgressSnapshot = ReturnType<TranslationProgress["snapshot"]>;
+
 export class TranslationProgress {
   constructor(private kind: "translation" | "highlight" = "translation") {}
   private popup?: ProgressWindowHelper;
@@ -21,7 +23,7 @@ export class TranslationProgress {
       window: Zotero.getMainWindow(), closeOnClick: false, closeTime: -1,
     }).createLine({ text: this.message, progress: this.percent })
       .createLine({ text: this.details(), progress: 100 }).show(-1);
-    this.popup.win.addDescription('可在条目右键菜单中选择“查看翻译进度”或“取消全文翻译”。');
+    this.popup.win.addDescription("阅读器顶部显示任务进度；点击进度可查看详情，旁边可直接取消。");
     if (!this.timer) this.timer = setInterval(() => this.render(), 1000);
   }
 
@@ -39,7 +41,7 @@ export class TranslationProgress {
   }
 
   snapshot() {
-    return { message: this.message, progress: this.percent, elapsedSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
+    return { kind: this.kind, message: this.message, progress: this.percent, elapsedSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
       requests: this.requests, completedRequests: this.completedRequests, activeRequests: this.activeRequests,
       cachedParagraphs: this.cachedParagraphs };
   }

@@ -87,31 +87,38 @@ export async function translate(item: any, options: { refresh?: boolean } = {}):
   const run = new WorkerRun();
   const progress = new TranslationProgress();
   const promise = (async () => {
-    const existing = await translatedFor(source);
-    if (existing && !options.refresh) { notify("已复用现有中文附件，未调用 API。"); return existing; }
-    const sourceState = await stamp(source);
-    const input = await source.getFilePathAsync();
-    // Freeze the configuration for prepare, translate and completion, even if
-    // the preferences change while the worker is running. Keys stay in pipes.
-    const config = engine.config();
-    const taskParams = { ...config, input, sourceID: `${source.libraryID}/${source.key}`,
-      taskDir: PathUtils.join(Zotero.DataDirectory.dir, "transyh", "retranslation") };
-    let task = options.refresh ? await engine.run("prepareRefresh", taskParams, undefined, run) : undefined;
-    if (task?.resumed && await translatedFor(source, task.refreshToken)) {
-      // Recover the narrow crash window after Zotero saved the attachment but
-      // before the local task was marked completed. A new explicit refresh
-      // must then start a fresh namespace instead of duplicating that import.
-      await engine.run("completeRefresh", { ...taskParams, refreshToken: task.refreshToken }, undefined, run);
-      task = await engine.run("prepareRefresh", taskParams, undefined, run);
-    }
-    const token = task?.refreshToken || Services.uuid.generateUUID().toString().slice(1, -1);
-    // Cache identity survives retries; attachment ordering follows this attempt.
-    // A task resumed after a newer configuration must become the latest version.
-    const version = `${Date.now()}-${token}`;
-    const outputDir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "jobs", `${source.libraryID}-${source.key}`, version);
-    await IOUtils.makeDirectory(outputDir, { permissions: 0o700, ignoreExisting: true });
+    progress.update({ type: "progress", message: "正在本地检查 PDF 语言…", progress: 0 });
     progress.show();
     try {
+      const input = await source.getFilePathAsync();
+      const inspected = await engine.run("inspect", { input }, undefined, run);
+      if (inspected.language === "zh") {
+        progress.finish(false, "原文已是中文，无需翻译。");
+        return source;
+      }
+      const existing = await translatedFor(source);
+      if (existing && !options.refresh) { progress.finish(false, "已复用现有中文附件。"); return existing; }
+      const sourceState = await stamp(source);
+      // Freeze the configuration for prepare, translate and completion, even if
+      // the preferences change while the worker is running. Keys stay in pipes.
+      const config = engine.config();
+      const taskParams = { ...config, input, sourceID: `${source.libraryID}/${source.key}`,
+        taskDir: PathUtils.join(Zotero.DataDirectory.dir, "transyh", "retranslation") };
+      let task = options.refresh ? await engine.run("prepareRefresh", taskParams, undefined, run) : undefined;
+      if (task?.resumed && await translatedFor(source, task.refreshToken)) {
+        // Recover the narrow crash window after Zotero saved the attachment but
+        // before the local task was marked completed. A new explicit refresh
+        // must then start a fresh namespace instead of duplicating that import.
+        await engine.run("completeRefresh", { ...taskParams, refreshToken: task.refreshToken }, undefined, run);
+        task = await engine.run("prepareRefresh", taskParams, undefined, run);
+      }
+      const token = task?.refreshToken || Services.uuid.generateUUID().toString().slice(1, -1);
+      // Cache identity survives retries; attachment ordering follows this attempt.
+      // A task resumed after a newer configuration must become the latest version.
+      const version = `${Date.now()}-${token}`;
+      const outputDir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "jobs", `${source.libraryID}-${source.key}`, version);
+      await IOUtils.makeDirectory(outputDir, { permissions: 0o700, ignoreExisting: true });
+      progress.update({ type: "progress", message: "正在准备本地翻译引擎…", progress: 0 });
       const result = await engine.run("translate", { ...config, input, outputDir,
         ...(options.refresh ? { ...taskParams, refreshToken: token } : {}) }, event => {
         progress.update(event);
@@ -221,7 +228,7 @@ export async function initPreferences(win: any): Promise<void> {
     const base = normalizeBaseURL(candidate, allowedHTTPBase);
     if (!get("model").value.trim()) throw new Error("请填写 Model。");
     const concurrency = Number(get("concurrency").value);
-    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new Error("并发请求数应为 1–8 的整数。");
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 10) throw new Error("并发请求数应为 1–10 的整数。");
     const density = get("highlight-density").value;
     if (!["concise", "smart", "full"].includes(density)) throw new Error("请选择有效的标注密度。");
     await credentials.set(base, get("key").value.trim());
@@ -266,7 +273,7 @@ async function applyPendingSetup(): Promise<void> {
     setPref("baseURL", base); setPref("model", setup.model); setPref("httpAllowedBase", allowedHTTPBase);
     setPref("pythonPath", setup.pythonPath || "");
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
-      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.0" }, { permissions: 0o600 });
+      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.3" }, { permissions: 0o600 });
     await IOUtils.remove(setupFile);
   } catch {
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
@@ -281,7 +288,9 @@ export async function startup(uri: string): Promise<void> {
   try { await engine.run("recoverHighlights", { installDir: highlightDirectory() }); }
   catch { notify("部分 AI 标注保存记录需要检查；已有 PDF 和备份保留。", true); }
   await applyPendingSetup();
-  readers = new Readers(store, translate, report); readers.start();
+  readers = new Readers(store, translate, report, {
+    status: translationStatus, show: showTranslationProgress, cancel: cancelTranslation, highlight: highlightPDF,
+  }); readers.start();
   Zotero.TransYH = { translate, retranslate, highlightPDF, cancelTranslation, showTranslationProgress, translationStatus, readers, store, engine, credentials, initPreferences, report };
   await Zotero.PreferencePanes.register({ pluginID: "transyh@local", id: "transyh-preferences", label: "TransYH",
     src: rootURI + "content/preferences.xhtml", scripts: [rootURI + "content/preferences.js"] });
