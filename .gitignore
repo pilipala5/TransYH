@@ -8,6 +8,8 @@ build/
 dist/*
 !dist/TransYH-0.1.3.xpi
 !dist/TransYH-0.1.4.xpi
+!dist/TransYH-0.2.0.xpi
+!dist/TransYH-0.2.0-source.zip
 __pycache__/
 .pytest_cache/
 *.pyc

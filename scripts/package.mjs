@@ -10,8 +10,8 @@ const target = path.join(root, `dist/TransYH-${version}-source.zip`);
 execFileSync('python3', ['-c', `
 import pathlib,zipfile,sys
 root=pathlib.Path(sys.argv[1]);target=pathlib.Path(sys.argv[2]);version=sys.argv[3]
-files=['package.json','package-lock.json','tsconfig.json','.gitignore','README.md','CHANGELOG.md','TEST_RESULTS.md','V014_TEST_RESULTS.md','REAL_API_TEST_20261029.md','PERFORMANCE_FIX_20261029.md','THIRD_PARTY_NOTICES.md','LICENSE','install-engine.command','install-engine.ps1']
-for name in ['addon','src','engine','scripts','tests']:
+files=['package.json','package-lock.json','tsconfig.json','.gitignore','README.md','CHANGELOG.md','TEST_RESULTS.md','V014_TEST_RESULTS.md','V020_TEST_RESULTS.md','REAL_API_TEST_20261029.md','PERFORMANCE_FIX_20261029.md','THIRD_PARTY_NOTICES.md','LICENSE','install-engine.command','install-engine.ps1']
+for name in ['addon','src','engine','scripts','tests','docs']:
  for p in (root/name).rglob('*'):
   if p.is_file() and '__pycache__' not in p.parts and 'output' not in p.relative_to(root).parts:
    files.append(str(p.relative_to(root)))

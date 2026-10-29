@@ -70,6 +70,25 @@ export class ReadingSession {
       this.forgetPane(this.other); this.other.destroy(); this.other = undefined; this.otherItemID = undefined;
     }
   }
+  async pdfUpdated(item: any): Promise<void> {
+    if (this.switching) await this.switching;
+    if (this.disposed) return;
+    const panes = [this.hostItemID === item.id ? this.host : undefined,
+      this.otherItemID === item.id ? this.other : undefined].filter(Boolean) as NativePane[];
+    if (!panes.length) return;
+    this.changing = true;
+    this.switching = (async () => {
+      for (const pane of panes) {
+        const state = pane.capture();
+        this.forgetPane(pane);
+        await pane.reloadFile(item, () => this.disposed || !this.reader._iframe?.isConnected);
+        if (this.disposed) return;
+        this.addControls(pane); await pane.restore(state);
+      }
+      await this.drainSwitches();
+    })().finally(() => { this.switching = undefined; this.changing = false; this.refresh(); this.save(); });
+    await this.switching;
+  }
   private async performSwitch(language: Language, saved?: ViewState, refresh = false): Promise<void> {
     if (this.disposed || (language === this.language && !refresh && !saved)) return;
     this.refresh(true);
@@ -236,6 +255,9 @@ export class Readers {
   async translationUpdated(source: any, item: any): Promise<void> {
     await Promise.all([...this.sessions.values()].filter(s => s.source.id === source.id && s.reader._iframe?.isConnected)
       .map(s => s.useTranslation(item)));
+  }
+  async pdfUpdated(item: any): Promise<void> {
+    await Promise.all([...this.sessions.values()].filter(s => s.reader._iframe?.isConnected).map(s => s.pdfUpdated(item)));
   }
   async showChinese(source: any): Promise<void> {
     const session = [...this.sessions.values()].find(s => s.source.id === source.id && s.reader._iframe?.isConnected);

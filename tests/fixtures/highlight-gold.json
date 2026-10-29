@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "provenance": "Synthetic research statements; six reference labels explicitly confirmed by the user in this chat on 2026-10-29. Not real study findings or measured model accuracy.",
+  "cases": [
+    {"id":"finding","section":"results","quote":"在三个测试数据集上，所提方法均降低了预测误差，但该结果仅支持本实验范围内的有效性。","type":"finding"},
+    {"id":"data","section":"results","quote":"在数据集 A 上，MAE 从基线的 0.84 降至 0.71，降幅为 15.5%。","type":"data"},
+    {"id":"innovation","section":"methods","quote":"不同于共享残差校正，本文提出双通道误差校正模块，分别估计趋势项与残差项。","type":"innovation"},
+    {"id":"background","section":"background","quote":"机器学习广泛应用于科学研究。","type":null},
+    {"id":"routine","section":"methods","quote":"基线采用随机森林，使用默认参数训练。","type":null},
+    {"id":"prior_work","section":"references","quote":"既有研究报告准确率为 95%，该数值不是本文实验结果。","type":null}
+  ]
+}

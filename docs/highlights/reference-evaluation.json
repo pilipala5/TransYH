@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "reference": "tests/fixtures/highlight-gold.json",
+  "referenceConfirmation": "Six synthetic labels explicitly approved by the user on 2026-10-29",
+  "selector": "scripted Mock; candidates derive from reference fixture",
+  "interpretation": "Exact reference-span scoring. Mock scores validate filtering/mapping only and are NOT semantic model accuracy or real-paper performance.",
+  "referenceCases": 6,
+  "positiveCases": 3,
+  "negativeCases": 3,
+  "truePositive": 3,
+  "falsePositive": 0,
+  "falseNegative": 0,
+  "requests": 3,
+  "highlightCount": 3,
+  "cases": [
+    {
+      "id": "finding",
+      "expected": "finding",
+      "selected": true
+    },
+    {
+      "id": "data",
+      "expected": "data",
+      "selected": true
+    },
+    {
+      "id": "innovation",
+      "expected": "innovation",
+      "selected": true
+    },
+    {
+      "id": "background",
+      "expected": null,
+      "selected": false
+    },
+    {
+      "id": "routine",
+      "expected": null,
+      "selected": false
+    },
+    {
+      "id": "prior_work",
+      "expected": null,
+      "selected": false
+    }
+  ]
+}

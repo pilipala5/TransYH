@@ -1,21 +1,30 @@
 {
   "name": "transyh",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "private": true,
-  "repository": { "type": "git", "url": "https://github.com/pilipala5/TransYH.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pilipala5/TransYH.git"
+  },
   "description": "Zotero single-tab Chinese PDF translation with a local BabelDOC engine",
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/core.test.ts",
-    "test:engine": ".venv/bin/python -m pytest tests/test_worker.py -q",
-    "test:zotero": "node scripts/zotero-test.mjs"
+    "test:engine": ".venv/bin/python -m pytest tests/test_worker.py tests/test_highlights.py tests/test_highlight_density.py -q",
+    "test:highlights": ".venv/bin/python -m pytest tests/test_highlights.py tests/test_highlight_density.py -q",
+    "test:zotero": "node scripts/zotero-test.mjs",
+    "test:zotero:density": "node scripts/zotero-density-test.mjs"
   },
-  "dependencies": { "zotero-plugin-toolkit": "6.0.0" },
+  "dependencies": {
+    "zotero-plugin-toolkit": "6.0.0"
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.0",

@@ -23,3 +23,8 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# Published demonstration article
+
+The screenshots under `docs/demo/` reproduce excerpts of Guo J-X, Wu Y, Zhang T-D, Lv F-L, Gong Y-F (2025), *Dual niche modeling with GEE and SHAP for predicting habitat shifts of Haloxylon ammodendron and Cistanche deserticola under climate change*, PLOS ONE 20(12): e0338809, https://doi.org/10.1371/journal.pone.0338809.
+
+Article text and figures © 2025 Guo et al., licensed under Creative Commons Attribution 4.0 International: https://creativecommons.org/licenses/by/4.0/. Chinese translation, page selection and AI highlights are adaptations produced for the TransYH demonstration and do not imply author, publisher or Zotero endorsement. Figure captions and their source attribution are retained. See `docs/demo/README.md` for the official sources, exact pages and verification boundary. The article content remains under CC BY 4.0; the project's AGPL-3.0-or-later license does not replace that license.

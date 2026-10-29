@@ -53,6 +53,7 @@ const prefs = {
 };
 await writeFile(path.join(profile, 'user.js'), Object.entries(prefs).map(([k,v])=>`user_pref(${quote(k)}, ${quote(v)});`).join('\n'));
 execFileSync(python, [path.join(root, 'tests/make_fixtures.py')]);
+execFileSync(python, ['-c',"import sys;sys.path.insert(0,'tests');from pathlib import Path;from highlight_fixtures import create;create(Path('tests/output/highlights-before.pdf'))"],{cwd:root});
 execFileSync('python3', ['-c', 'import pathlib,zipfile,sys; d=pathlib.Path(sys.argv[1]); z=zipfile.ZipFile(sys.argv[2],"w",zipfile.ZIP_DEFLATED); [z.write(p,p.name) for p in d.iterdir() if p.is_file()]; z.close()', path.join(root, 'tests/host-addon'), path.join(profile, 'extensions/transyh-tests@local.xpi')]);
 
 let environment;
@@ -73,6 +74,9 @@ try {
   console.log('Testing installed XPI: API, encrypted credentials, preference pane');
   results.settings = await invoke(`const a=Zotero.TransYH;Zotero.Prefs.set('extensions.transyh.baseURL',${quote(baseURL)},true);Zotero.Prefs.set('extensions.transyh.model','fixture-connection',true);Zotero.Prefs.set('extensions.transyh.pythonPath',${quote(python)},true);await a.credentials.set(${quote(baseURL)},'fixture-only-key');const connection=await a.engine.run('test');const check=await a.engine.run('check');Zotero.Utilities.Internal.openPreferences('transyh-preferences');await Zotero.Promise.delay(400);const w=Services.wm.getMostRecentWindow('zotero:pref');const ok=!!w.document.getElementById('transyh-test');w.close();return {connection:connection.type,engine:check.version,credentials:a.credentials.get(${quote(baseURL)})==='fixture-only-key',pane:ok};`);
   assert.equal(results.settings.pane,true);assert.equal(results.settings.credentials,true);
+  await invoke(`Zotero.Prefs.set('extensions.transyh.testAPIBase',${quote(baseURL)},true);return true;`);
+  console.log('Testing AI highlights: exact native PDF rendering, atomic update, annotations, cache, cancellation and automatic integration');
+  results.highlights=await invoke(await readFile(path.join(root,'tests/zotero-highlights.js'),'utf8'),180000);
   console.log('Testing single-tab native PDF switching');
   results.switching = await invoke(await readFile(path.join(root,'tests/zotero-phase-a.js'),'utf8'),60000);
   assert.ok(results.switching.cachedSwitchMilliseconds.every(ms=>ms<500));
@@ -139,6 +143,12 @@ try {
   const reopened = await invoke(`const z=await Zotero.TransYH.translate(Zotero.Items.get(${source.id}));return z.id;`);
   assert.equal(reopened,expectedZHID);assert.equal(await stats(),finalCalls);
   results.restart.reusedAttachmentWithoutAPICall=true;
+  results.highlightRestart=await invoke(`const a=Zotero.TransYH,s=Zotero.Items.get(${quote(results.highlights.sourceID)});
+    Zotero.Prefs.set('extensions.transyh.model',${quote(results.highlights.model)},true);
+    const result=await a.highlightPDF(s);await a.readers.showChinese(s);
+    const note=Zotero.Items.get(${quote(results.highlights.noteID)});
+    if(!result.unchanged||result.requests!==0||result.highlightCount!==3||note.deleted)throw new Error('Restart lost highlights/cache/annotation');
+    return {unchanged:true,requests:0,highlightCount:result.highlightCount,annotationPreserved:!note.deleted};`);
   results.passed=true;
   console.log('Zotero integration checks passed');
 } finally {

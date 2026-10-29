@@ -1,0 +1,52 @@
+[
+  {
+    "paragraph_id": "p2b4g0",
+    "type": "data",
+    "start": 103,
+    "end": 211,
+    "importance": "important",
+    "excerptPage": 2,
+    "originalPage": 9,
+    "quote": "对于梭梭，集成模型在关键评估指标上均达到接近最优或最高的数值，包括AUC-ROC（0.9559 ± 0.0089）、TSS（0.8168 ± 0.0319）和精确率（0.8534 ± 0.0363），表明其表现稳健。"
+  },
+  {
+    "paragraph_id": "p2b5g0",
+    "type": "data",
+    "start": 0,
+    "end": 128,
+    "importance": "important",
+    "excerptPage": 2,
+    "originalPage": 9,
+    "quote": "对于C. deserticola，集成模型在关键指标上也表现出色，包括\u0003AUC-ROC（0.9199 ± 0.0298）、TSS（0.7596 ± 0. 0578）和\u0003Boyce\u0003指数（0.9143 ± 0.0520），表明其具有较强的预测能力和泛化能力。"
+  },
+  {
+    "paragraph_id": "p2b5g0",
+    "type": "finding",
+    "start": 169,
+    "end": 233,
+    "importance": "important",
+    "excerptPage": 2,
+    "originalPage": 9,
+    "quote": "总体而言，在这两个物种的气候生态位建模中，集成方法的表现均优于单一模型，因此被选为最终预测工具，以确保结果可靠且具有广泛适用性。"
+  },
+  {
+    "paragraph_id": "p2b6g0",
+    "type": "data",
+    "start": 54,
+    "end": 130,
+    "importance": "important",
+    "excerptPage": 2,
+    "originalPage": 9,
+    "quote": "对于梭梭，集成模型表现出色，AUC-ROC达到0.9704 ± 0.0093，TSS达到0.9027 ± 0.0287，接近或超过各单一模型的最佳结果。"
+  },
+  {
+    "paragraph_id": "p2b6g0",
+    "type": "data",
+    "start": 237,
+    "end": 351,
+    "importance": "important",
+    "excerptPage": 2,
+    "originalPage": 9,
+    "quote": "尽管肉苁蓉的总体指标略低于梭梭，集成模型仍表现出较强的预测能力，AUC-ROC达到0.9158 ± 0.0290，TSS达到0.7026 ± 0.0707。其敏感度（0.9412 ± 0.0807）表明该模型具有较强的检出能力。"
+  }
+]

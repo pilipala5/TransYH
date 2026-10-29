@@ -1,0 +1,119 @@
+{
+  "pluginVersion": "0.2.0",
+  "zoteroVersion": "10.0.6",
+  "date": "2026-10-29",
+  "doi": "10.1371/journal.pone.0338809",
+  "sourcePages": [
+    7,
+    9,
+    13
+  ],
+  "model": "gpt-6.1-sol",
+  "realAPI": true,
+  "mock": false,
+  "translation": {
+    "pages": 3,
+    "cachedParagraphs": 2,
+    "quality": {
+      "schema": 1,
+      "status": "pass",
+      "pages": 3,
+      "trackingAvailable": true,
+      "checkedParagraphs": 67,
+      "englishBodyParagraphs": 11,
+      "issues": []
+    }
+  },
+  "translationSeconds": 106.788,
+  "highlights": {
+    "highlightCount": 5,
+    "requests": 2,
+    "cachedBatches": 0,
+    "skippedCandidates": 3,
+    "elapsedSeconds": 24.4
+  },
+  "repeated": {
+    "unchanged": true,
+    "requests": 0,
+    "highlightCount": 5
+  },
+  "switching": {
+    "sameTab": true,
+    "sameEnglishPDF": true,
+    "tabsBefore": 3,
+    "tabsAfter": 3
+  },
+  "englishUnchanged": true,
+  "attachmentCount": 2,
+  "captureMethod": "Gecko CanvasRenderingContext2D.drawWindow of live Zotero reader tab, toolbar included; no compositing or retouching",
+  "captures": [
+    {
+      "name": "reader-english.png",
+      "language": "en",
+      "pageIndex": 1,
+      "bytes": 376980,
+      "width": 1120,
+      "height": 1047
+    },
+    {
+      "name": "reader-chinese.png",
+      "language": "zh",
+      "pageIndex": 1,
+      "bytes": 335866,
+      "width": 1120,
+      "height": 1047
+    },
+    {
+      "name": "highlights-after.png",
+      "language": "zh",
+      "pageIndex": 1,
+      "bytes": 335382,
+      "width": 1120,
+      "height": 1047
+    },
+    {
+      "name": "reader-methods.png",
+      "language": "zh",
+      "pageIndex": 0,
+      "bytes": 368595,
+      "width": 1120,
+      "height": 1047
+    },
+    {
+      "name": "reader-map.png",
+      "language": "zh",
+      "pageIndex": 2,
+      "bytes": 428641,
+      "width": 1120,
+      "height": 1047
+    },
+    {
+      "name": "highlights-before.png",
+      "language": "zh",
+      "pageIndex": 1,
+      "bytes": 335866,
+      "width": 1120,
+      "height": 1047,
+      "sameBytesAs": "reader-chinese.png"
+    }
+  ],
+  "license": "CC BY 4.0",
+  "articleURL": "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0338809",
+  "officialPDFURL": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0338809&type=printable",
+  "translationRequestTotal": null,
+  "translationRequestNote": "Only three source pages translated once; final total API request count was not retained. Two translation cache hits are reported by the worker.",
+  "acceptedByType": {
+    "data": 4,
+    "finding": 1
+  },
+  "acceptedOriginalPages": [
+    9
+  ],
+  "reviewBoundary": "Five accepted quotes checked against the original page 9 prose and Tables 1/2; no independent expert gold standard or recall estimate.",
+  "formulaBoundary": "Source page 7 is SHAP method prose; the displayed equation on source page 8 was outside the three-page real translation sample.",
+  "requestedExcerptPages": [
+    2,
+    3
+  ],
+  "methodsBoundary": "Source page 7 lacks the parent section heading in the excerpt and was not eligible for AI requests; no innovation-recognition claim is made for that page."
+}
