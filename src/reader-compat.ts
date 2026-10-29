@@ -5,9 +5,11 @@ import { clampState, type ViewState } from "./core";
 export const unwrap = (x: any): any => x?.wrappedJSObject || x;
 export const clone = (x: any, win: any): any => Cu.cloneInto(x, win, { cloneFunctions: true, wrapReflectors: true });
 
-export async function until<T>(get: () => T | null | false | undefined, message: string, timeout = 20000): Promise<T> {
+export async function until<T>(get: () => T | null | false | undefined, message: string, timeout = 20000,
+  cancelled = () => false): Promise<T> {
   const start = Date.now();
   while (Date.now() - start < timeout) {
+    if (cancelled()) throw new Error("阅读标签已关闭。");
     const value = get();
     if (value) return value;
     await Zotero.Promise.delay(30);
@@ -16,15 +18,24 @@ export async function until<T>(get: () => T | null | false | undefined, message:
 }
 
 export class NativePane {
+  private destroyed = false;
   constructor(public browser: any, public internal: any) {}
   get win(): any { return this.browser.contentWindow; }
   get pdf(): any {
     const view = unwrap(this.internal)?._primaryView;
     return unwrap(view?._iframeWindow || view?._iframe?.contentWindow)?.PDFViewerApplication;
   }
-  async ready(): Promise<void> {
+  async ready(cancelled = () => false): Promise<void> {
+    const view = unwrap(this.internal)?._primaryView;
+    let initialized = !view?.initializedPromise;
+    let failed = false;
+    view?.initializedPromise?.then(() => { initialized = true; }, () => { failed = true; });
+    // pagesCount/_location can appear before Zotero applies its initial view.
+    // Wait for that native work, otherwise it can overwrite our restored state.
     await until(() => this.pdf?.pdfViewer?.pagesCount && this.pdf?.pdfViewer?._location,
-      "TransYH 无法访问原生 PDF 阅读器；当前 Zotero 版本可能不兼容。", 30000);
+      "TransYH 无法访问原生 PDF 阅读器；当前 Zotero 版本可能不兼容。", 30000, cancelled);
+    await until(() => { if (failed) throw new Error("原生 PDF 阅读器初始化失败。"); return initialized; },
+      "原生 PDF 阅读器初始化超时。", 30000, cancelled);
   }
   capture(): ViewState {
     const viewer = this.pdf?.pdfViewer;
@@ -60,8 +71,20 @@ export class NativePane {
   }
   focus(): void { this.win.focus(); this.internal.focus?.(); }
   destroy(): void {
-    try { this.internal?._primaryView?.destroy?.(); } catch { /* realm may already be gone */ }
+    if (this.destroyed) return;
+    this.destroyed = true;
+    let loadingTask: any;
+    try { loadingTask = this.pdf?.pdfLoadingTask; } catch { /* content realm already destroyed */ }
+    try {
+      // The secondary reader owns event listeners and PDF.js loading tasks as
+      // well as its primary view. Prefer its complete native teardown.
+      const result = typeof this.internal?.uninit === "function" ? this.internal.uninit()
+        : typeof this.internal?.destroy === "function" ? this.internal.destroy() : this.internal?._primaryView?.destroy?.();
+      result?.catch?.(() => {});
+    } catch { /* realm may already be gone */ }
+    try { loadingTask?.destroy()?.catch?.(() => {}); } catch { /* closed PDF worker */ }
     this.browser.remove();
+    this.internal = undefined;
   }
 }
 
@@ -72,7 +95,8 @@ export function originalPane(reader: any): NativePane {
   return new NativePane(reader._iframe, unwrap(reader._internalReader));
 }
 
-export async function createPane(reader: any, item: any, initial: ViewState, onState: (state: ViewState) => void): Promise<NativePane> {
+export async function createPane(reader: any, item: any, initial: ViewState, onState: (state: ViewState) => void,
+  cancelled = () => false): Promise<NativePane> {
   const doc = reader._window.document;
   const browser = doc.createXULElement("browser");
   browser.setAttribute("type", "content");
@@ -84,11 +108,12 @@ export async function createPane(reader: any, item: any, initial: ViewState, onS
   reader._tabContainer.style.position = "relative";
   reader._tabContainer.appendChild(browser);
   browser.setAttribute("src", "resource://zotero/reader/reader.html");
+  let pane: NativePane | undefined;
   try {
     const raw = await until(() => {
       const w = unwrap(browser.contentWindow);
       return typeof w?.createReader === "function" ? w : null;
-    }, "中文阅读器加载超时。");
+    }, "中文阅读器加载超时。", 20000, cancelled);
     const ftl: string[] = [];
     for (const locale of [...new Set(["en-US", Zotero.locale])]) {
       for (const name of ["branding/brand.ftl", "zotero.ftl", "reader.ftl"]) {
@@ -117,9 +142,9 @@ export async function createPane(reader: any, item: any, initial: ViewState, onS
       onSetLightTheme: noop, onSetDarkTheme: noop, onSaveCustomThemes: noop,
     };
     const internal = raw.createReader(clone(config, browser.contentWindow));
-    const pane = new NativePane(browser, unwrap(internal));
-    await pane.ready();
+    pane = new NativePane(browser, unwrap(internal));
+    await pane.ready(cancelled);
     await Promise.race([pane.pdf.pdfViewer.pagesPromise, Zotero.Promise.delay(5000)]);
     return pane;
-  } catch (error) { browser.remove(); throw error; }
+  } catch (error) { if (pane) pane.destroy(); else browser.remove(); throw error; }
 }

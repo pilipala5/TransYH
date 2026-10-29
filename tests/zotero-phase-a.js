@@ -26,7 +26,7 @@ assert(controls, 'Toolbar language buttons are missing');
 await session.host.restore({ pageIndex: 1, scale: 145, top: 540, left: 0, scrollMode: 0, spreadMode: 0 });
 const before = session.active.capture();
 assert(before.pageIndex === 1 && before.scale === 145, 'Initial navigation did not settle');
-await session.switchTo('zh');
+await Promise.all([session.switchTo('zh'), session.switchTo('en'), session.switchTo('zh')]);
 const after = session.active.capture();
 assert(reader.tabID === tabID && tabs() === count, 'Switch opened another Zotero tab');
 assert(session.host.browser === originalBrowser && session.host.pdf.pdfDocument === originalPDF, 'Original PDF was reloaded');
@@ -45,6 +45,16 @@ for (const language of ['en', 'zh', 'en', 'zh']) {
     'Reading position changed on repeated switch');
 }
 assert(session.other.pdf.pdfDocument === translationPDF && session.host.pdf.pdfDocument === originalPDF, 'Switch reloaded a PDF');
+const rapidStart = Date.now();
+await Promise.all(Array.from({length: 20}, (_, i) => session.switchTo(i % 2 ? 'zh' : 'en')));
+assert(session.language === 'zh', 'Latest rapid-switch intent was lost');
+assert(session.other.pdf.pdfDocument === translationPDF && session.host.pdf.pdfDocument === originalPDF, 'Rapid switching duplicated PDF instances');
+assert(reader._tabContainer.querySelectorAll('.transyh-reader').length === 1, 'More than one secondary browser survived');
+const rapidMilliseconds = Date.now() - rapidStart;
+session.active.win.document.querySelector('[data-language="en"]').click();
+session.active.win.document.querySelector('[data-language="zh"]').click();
+await session.switchTo('zh');
+assert(session.language === 'zh', 'Actual rapid toolbar clicks lost the final language');
 session.save(); await addon.store.flush();
 const saved = addon.store.get(source);
 assert(saved.language === 'zh' && saved.state.pageIndex === 1 && saved.state.scale === 145, 'Reading state was not persisted');
@@ -52,4 +62,6 @@ await IOUtils.writeJSON(root + '/.test-runtime/items.json', { sourceID: source.i
 return { version: Zotero.version, sourceID: source.id, zhID: zh.id, tabID, tabCountBefore: count, tabCountAfter: tabs(),
   sameOriginalPDF: session.host.pdf.pdfDocument === originalPDF, sameTranslationPDF: session.other.pdf.pdfDocument === translationPDF,
   before, after, cachedSwitchMilliseconds: timing, saved, toolbar: controls.textContent,
-  menu: !!reader._window.document.getElementById('transyh-translate') };
+  rapidRequests: 20, rapidMilliseconds, rapidFinalLanguage: session.language,
+  secondaryBrowsers: reader._tabContainer.querySelectorAll('.transyh-reader').length,
+  menu: !!reader._window.document.getElementById('transyh-translate'), refreshMenu: !!reader._window.document.getElementById('transyh-retranslate') };

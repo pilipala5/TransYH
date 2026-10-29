@@ -37,6 +37,7 @@ class Handler(BaseHTTPRequestHandler):
     calls=0
     requests=[]
     metrics={}
+    controls={}
     lock=threading.Lock()
     def log_message(self, *_): pass
     def do_GET(self):
@@ -53,12 +54,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         data=json.loads(self.rfile.read(int(self.headers.get('Content-Length',0))))
         model=data.get('model','')
+        if self.path=='/control':
+            with Handler.lock: Handler.controls[model]=data
+            self.reply(200,{'ok':True});return
         with Handler.lock:
             Handler.calls+=1
             metrics=Handler.metrics.setdefault(model,{'active':0,'peakConcurrent':0,'calls':0})
             metrics['active']+=1;metrics['calls']+=1
             metrics['peakConcurrent']=max(metrics['peakConcurrent'],metrics['active'])
+            call_number=metrics['calls']
+            control=dict(Handler.controls.get(model,{}))
         try:
+            if control.get('delay'):time.sleep(control['delay'])
+            if control.get('failAfter') is not None and call_number>control['failAfter']:
+                self.reply(401,{'error':{'message':'controlled-partial-failure'}});return
             self.handle_request(data,model)
         finally:
             with Handler.lock:metrics['active']-=1

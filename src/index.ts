@@ -23,28 +23,57 @@ export async function cancelTranslation(item: any): Promise<void> {
 }
 export function showTranslationProgress(item: any): void { tasks.get(originalFor(item).id)?.progress.show(); }
 export function translationStatus(item: any) { return tasks.get(originalFor(item).id)?.progress.snapshot(); }
-export async function translate(item: any): Promise<any> {
+export async function retranslate(item: any): Promise<any> { return translate(item, { refresh: true }); }
+export async function translate(item: any, options: { refresh?: boolean } = {}): Promise<any> {
   const source = originalFor(item);
   if (tasks.has(source.id)) { showTranslationProgress(source); return tasks.get(source.id)!.promise; }
   const run = new WorkerRun();
   const progress = new TranslationProgress();
   const promise = (async () => {
     const existing = await translatedFor(source);
-    if (existing) { notify("已复用现有中文附件，未调用 API。"); return existing; }
+    if (existing && !options.refresh) { notify("已复用现有中文附件，未调用 API。"); return existing; }
     const sourceState = await stamp(source);
     const input = await source.getFilePathAsync();
-    const outputDir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "jobs", `${source.libraryID}-${source.key}`);
+    // Freeze the configuration for prepare, translate and completion, even if
+    // the preferences change while the worker is running. Keys stay in pipes.
+    const config = engine.config();
+    const taskParams = { ...config, input, sourceID: `${source.libraryID}/${source.key}`,
+      taskDir: PathUtils.join(Zotero.DataDirectory.dir, "transyh", "retranslation") };
+    let task = options.refresh ? await engine.run("prepareRefresh", taskParams, undefined, run) : undefined;
+    if (task?.resumed && await translatedFor(source, task.refreshToken)) {
+      // Recover the narrow crash window after Zotero saved the attachment but
+      // before the local task was marked completed. A new explicit refresh
+      // must then start a fresh namespace instead of duplicating that import.
+      await engine.run("completeRefresh", { ...taskParams, refreshToken: task.refreshToken }, undefined, run);
+      task = await engine.run("prepareRefresh", taskParams, undefined, run);
+    }
+    const token = task?.refreshToken || Services.uuid.generateUUID().toString().slice(1, -1);
+    // Cache identity survives retries; attachment ordering follows this attempt.
+    // A task resumed after a newer configuration must become the latest version.
+    const version = `${Date.now()}-${token}`;
+    const outputDir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "jobs", `${source.libraryID}-${source.key}`, version);
     await IOUtils.makeDirectory(outputDir, { permissions: 0o700, ignoreExisting: true });
     progress.show();
     try {
-      const result = await engine.run("translate", { input, outputDir }, event => {
+      const result = await engine.run("translate", { ...config, input, outputDir,
+        ...(options.refresh ? { ...taskParams, refreshToken: token } : {}) }, event => {
         progress.update(event);
       }, run);
       if (!result.path) throw new Error("本地引擎没有返回中文 PDF。");
-      const attachment = await importTranslation(source, result.path, sourceState);
+      if (result.quality?.status === "structural_error") throw new Error("译文存在结构性错误，未导入；已有译文保留。");
+      const attachment = await importTranslation(source, result.path, sourceState, { refresh: options.refresh, version });
+      if (options.refresh) {
+        try { await engine.run("completeRefresh", { ...taskParams, refreshToken: token }, undefined, run); }
+        catch { notify("新译文已保存；任务状态保存未完成，下次重译会核对已导入版本。", true); }
+      }
       // Imported attachment owns its own copy; remove the generated duplicate.
-      await IOUtils.remove(result.path, { ignoreAbsent: true });
-      progress.finish();
+      await IOUtils.remove(result.path, { ignoreAbsent: true }).catch(() => {});
+      progress.finish(result.quality?.status === "suspect");
+      if (options.refresh) {
+        // A reader error does not roll back a valid, already imported PDF.
+        try { await readers.translationUpdated(source, attachment); }
+        catch { notify("新译文已保存；阅读器加载未完成，可再次点击“中文”。", true); }
+      }
       return attachment;
     } catch (error) { progress.close(); throw error; }
   })().finally(() => tasks.delete(source.id));
@@ -74,6 +103,15 @@ export function onMainWindowLoad(win: any): void {
       try { await translate(pdf); await readers.showChinese(pdf); } catch (e) { report(e); }
     }
   });
+  const refreshMenu = doc.createXULElement("menuitem");
+  refreshMenu.id = "transyh-retranslate";
+  refreshMenu.setAttribute("label", "重新翻译 · TransYH");
+  refreshMenu.addEventListener("command", async () => {
+    for (const pdf of await selectedPDFs(win)) {
+      if (tasks.has(pdf.id)) { showTranslationProgress(pdf); continue; }
+      try { await retranslate(pdf); await readers.showChinese(pdf); } catch (e) { report(e); }
+    }
+  });
   const cancel = doc.createXULElement("menuitem");
   cancel.id = "transyh-cancel"; cancel.setAttribute("label", "取消全文翻译 · TransYH");
   cancel.addEventListener("command", async () => { for (const pdf of await selectedPDFs(win)) await cancelTranslation(pdf); });
@@ -84,9 +122,11 @@ export function onMainWindowLoad(win: any): void {
     const pdfs = await selectedPDFs(win);
     translateMenu.hidden = !pdfs.length; cancel.hidden = !pdfs.some(p => tasks.has(p.id));
     translateMenu.setAttribute("label", pdfs.some(p => tasks.has(p.id)) ? "查看翻译进度 · TransYH" : "翻译全文 · TransYH");
+    refreshMenu.hidden = !pdfs.length || !(await Promise.all(pdfs.map(p => translatedFor(p).catch(() => undefined)))).some(Boolean);
+    refreshMenu.disabled = pdfs.some(p => tasks.has(p.id));
   };
-  menu.append(translateMenu, cancel, settings); menu.addEventListener("popupshowing", update);
-  cleanups.set(win, () => { menu.removeEventListener("popupshowing", update); translateMenu.remove(); cancel.remove(); settings.remove(); });
+  menu.append(translateMenu, refreshMenu, cancel, settings); menu.addEventListener("popupshowing", update);
+  cleanups.set(win, () => { menu.removeEventListener("popupshowing", update); translateMenu.remove(); refreshMenu.remove(); cancel.remove(); settings.remove(); });
 }
 export function onMainWindowUnload(win: any): void { cleanups.get(win)?.(); cleanups.delete(win); }
 
@@ -148,7 +188,7 @@ async function applyPendingSetup(): Promise<void> {
     setPref("baseURL", base); setPref("model", setup.model); setPref("httpAllowedBase", allowedHTTPBase);
     setPref("pythonPath", setup.pythonPath || "");
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
-      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.1.3" }, { permissions: 0o600 });
+      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.1.4" }, { permissions: 0o600 });
     await IOUtils.remove(setupFile);
   } catch {
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
@@ -162,7 +202,7 @@ export async function startup(uri: string): Promise<void> {
   engine = new Engine(rootURI, credentials); await engine.prepare();
   await applyPendingSetup();
   readers = new Readers(store, translate, report); readers.start();
-  Zotero.TransYH = { translate, cancelTranslation, showTranslationProgress, translationStatus, readers, store, engine, credentials, initPreferences, report };
+  Zotero.TransYH = { translate, retranslate, cancelTranslation, showTranslationProgress, translationStatus, readers, store, engine, credentials, initPreferences, report };
   await Zotero.PreferencePanes.register({ pluginID: "transyh@local", id: "transyh-preferences", label: "TransYH",
     src: rootURI + "content/preferences.xhtml", scripts: [rootURI + "content/preferences.js"] });
   for (const win of Zotero.getMainWindows()) onMainWindowLoad(win);

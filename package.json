@@ -1,6 +1,6 @@
 {
   "name": "transyh",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "repository": { "type": "git", "url": "https://github.com/pilipala5/TransYH.git" },
   "description": "Zotero single-tab Chinese PDF translation with a local BabelDOC engine",
