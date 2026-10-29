@@ -18,6 +18,8 @@ import pymupdf
 COLORS = {"finding": (0.16, 0.43, 0.95), "data": (1.0, 0.52, 0.08), "innovation": (0.60, 0.28, 0.84)}
 MARKER = "TransYHHighlights"
 PREFIX = b"% TransYHHighlight-v1 "
+IMPORTANCE = {"core": 2, "important": 1, "supporting": 0}
+DENSITIES = {"concise": {"core"}, "smart": {"core", "important"}, "full": set(IMPORTANCE)}
 SECTIONS = {
     "background": r"引言|绪论|研究背景|背景|相关工作|文献综述|introduction|background|related work|literature review",
     "methods": r"方法|研究方法|材料与方法|方法创新|模型方法|模型设计|研究设计|实验设置|实验配置|实验设计|实现细节|method|methods|methodology|materials and methods|proposed method|experimental setup|implementation details",
@@ -48,7 +50,7 @@ def metadata(doc):
     try:
         data = json.loads(value)
         if (data["schema"] != 1 or not isinstance(data["streams"], dict)
-                or type(data["count"]) is not int or not 0 <= data["count"] <= len(doc)*2
+                or type(data["count"]) is not int or data["count"] < 0
                 or any(not isinstance(data.get(k),str) for k in ('base_id','text_id','config_id'))):
             raise ValueError
         # A PDF editor may remove/rewrite streams without updating our marker.
@@ -58,7 +60,9 @@ def metadata(doc):
             if not 0<=page_index<len(doc) or not isinstance(references,list):raise ValueError
             contents=doc[page_index].get_contents()
             if any(type(r) is not int or r not in contents or not doc.xref_stream(r).startswith(PREFIX) for r in references):raise ValueError
-        if data['count'] and not any(data['streams'].values()):raise ValueError
+        # Each highlight must own at least one painted line, irrespective of
+        # how many highlights a page contains. This is structural validation.
+        if data['count'] > sum(len(refs) for refs in data['streams'].values()):raise ValueError
         return data
     except (ValueError, KeyError, TypeError, RuntimeError):
         raise HighlightError("已有 AI 标注层记录无法识别，未修改 PDF。") from None
@@ -211,17 +215,26 @@ def locate(paragraph, quote):
     return {"start": start, "end": start + len(quote), "boxes": boxes} if boxes else None
 
 
-def validate_candidates(paragraphs, candidates):
+def density_mode(value="smart"):
+    if not isinstance(value, str) or value not in DENSITIES:
+        raise HighlightError("标注密度无效，请选择精简、智能或充分。")
+    return value
+
+
+def validate_candidates(paragraphs, candidates, density="smart"):
+    allowed = DENSITIES[density_mode(density)]
     by_id = {p["paragraph_id"]: p for p in paragraphs}
-    accepted, skipped, occupied, counts, lengths = [], Counter(), {}, Counter(), Counter()
-    total_chars = Counter()
-    for p in paragraphs: total_chars[p["page"]] += len(re.sub(r"\s", "", p["text"]))
+    accepted, skipped, occupied = [], Counter(), {}
     if not isinstance(candidates, list):
         raise HighlightError("AI 标注响应格式无效，原译文未修改。")
-    if len(candidates) > 200:
-        raise HighlightError("AI 标注候选过多，原译文未修改。")
-    for row in candidates:
-        if not isinstance(row, dict) or set(row) != {"paragraph_id", "quote", "type", "confidence"}:
+    def rank(row):
+        value = row.get("importance", "important") if isinstance(row, dict) else None
+        return IMPORTANCE.get(value, -1) if isinstance(value, str) else -1
+    # Resolve overlapping suggestions in favour of their academic importance,
+    # never by a fixed page quota or a model's self-reported confidence.
+    for row in sorted(candidates, key=rank, reverse=True):
+        required = {"paragraph_id", "quote", "type", "confidence"}
+        if not isinstance(row, dict) or set(row) not in (required, required | {"importance"}):
             skipped["schema"] += 1; continue
         paragraph = by_id.get(row["paragraph_id"]) if isinstance(row["paragraph_id"], str) else None
         quote, category, confidence = row["quote"], row["type"], row["confidence"]
@@ -234,18 +247,18 @@ def validate_candidates(paragraphs, candidates):
         if not local_evidence(paragraph, quote, category): skipped["evidence"] += 1; continue
         mapped = locate(paragraph, quote)
         if not mapped: skipped["unmatched_or_ambiguous"] += 1; continue
+        importance = row.get("importance", "important")
+        if not isinstance(importance, str) or importance not in IMPORTANCE:
+            skipped["importance"] += 1; continue
+        if importance not in allowed: skipped["importance"] += 1; continue
         page = paragraph["page"]
-        quote_length = len(re.sub(r"\s", "", quote))
-        if counts[page] >= 2 or lengths[page] + quote_length > max(40, min(240, int(total_chars[page] * .25))):
-            skipped["density"] += 1; continue
         rects = [pymupdf.Rect(b) for b in mapped["boxes"]]
         if any((rect & previous).get_area() > 0 for rect in rects for previous in occupied.get(page, [])):
             skipped["duplicate_or_overlap"] += 1; continue
         occupied.setdefault(page, []).extend(rects)
-        counts[page] += 1; lengths[page] += quote_length
         # Cache offsets and category only, never paper text or self-confidence.
         accepted.append({"paragraph_id": paragraph["paragraph_id"], "type": category,
-                         "start": mapped["start"], "end": mapped["end"]})
+                         "start": mapped["start"], "end": mapped["end"], "importance": importance})
     return accepted, dict(skipped)
 
 
@@ -272,7 +285,7 @@ def verify_preserved(before, after):
             raise HighlightError("标注后 PDF 完整性核验失败，原译文未修改。")
 
 
-def render_layer(source, destination, paragraphs, records, config_id, base_id):
+def render_layer(source, destination, paragraphs, records, config_id, base_id, density="smart"):
     by_id = {p["paragraph_id"]: p for p in paragraphs}
     with pymupdf.open(source) as doc:
         if doc.needs_pass or doc.is_repaired or not doc.is_pdf or doc.get_sigflags() > 0:
@@ -299,7 +312,7 @@ def render_layer(source, destination, paragraphs, records, config_id, base_id):
             for reference in added: doc.update_stream(reference, PREFIX + b"\n" + doc.xref_stream(reference))
             streams.setdefault(str(page.number), []).extend(sorted(added))
         value = {"schema": 1, "base_id": base_id, "text_id": text_identity(paragraphs),
-                 "config_id": config_id, "count": len(records), "streams": streams}
+                 "config_id": config_id, "density": density_mode(density), "count": len(records), "streams": streams}
         doc.xref_set_key(doc.pdf_catalog(), MARKER, pymupdf.get_pdf_str(json.dumps(value)))
         doc.save(destination, deflate=True)
     verify_preserved(source, destination)

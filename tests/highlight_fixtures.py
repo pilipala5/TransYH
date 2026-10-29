@@ -8,6 +8,14 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
 ROOT = Path(__file__).resolve().parent
 GOLD = json.loads((ROOT/'fixtures/highlight-gold.json').read_text())['cases']
+# Scripted importance levels test local selection, not model ranking accuracy.
+DENSITY_CASES = [
+    {**GOLD[2], 'importance':'core'},
+    {**GOLD[0], 'importance':'important'},
+    {**GOLD[1], 'importance':'important'},
+    {'quote':'消融实验发现，辅助正则项降低了重复实验的方差，但尚未验证其他数据域。','type':'finding','importance':'supporting'},
+    {'quote':'在补充实验中，平均推理延迟从 24 毫秒降至 21 毫秒，硬件配置保持一致。','type':'data','importance':'supporting'},
+]
 pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
 
 
@@ -42,5 +50,22 @@ def create(path):
     paragraph('仍需跨机构验证。现有测试不能证明因果关系，也不能据此宣称适用于全部应用场景。'+filler*2,46,696)
     title('参考文献',450)
     paragraph(GOLD[5]['quote']+filler,46,410)
+    c.save()
+    return Path(path)
+
+
+def create_density(path, counts=(0,1,3,5)):
+    c=canvas.Canvas(str(path),pagesize=(612,792),invariant=1)
+    c.setTitle('TransYH density fixture - synthetic 0/1/3/5 research spans')
+    for count in counts:
+        c.setFont('STSong-Light',16);c.drawString(46,744,'实验结果')
+        c.setFont('STSong-Light',11)
+        texts=[row['quote'] for row in DENSITY_CASES[:count]] or ['此处说明常规数据整理流程，不包含可标注的研究发现。']
+        y=700
+        for text in texts:
+            for line in textwrap.wrap(text,width=32,break_long_words=True):
+                c.drawString(46,y,line);y-=18
+            y-=26
+        c.showPage()
     c.save()
     return Path(path)

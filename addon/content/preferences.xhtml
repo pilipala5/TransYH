@@ -12,6 +12,11 @@
     <html:p>默认同时翻译 4 个段落。若服务商限制并发，可改为 1–2；调用内容和模型保持相同。</html:p>
     <html:p><html:label><html:input id="transyh-http" type="checkbox"/> 允许此地址使用 HTTP（明文传输；仅对当前保存地址生效）</html:label></html:p>
     <html:p><html:label title="蓝色：发现；橙色：数据；紫色：创新。使用当前 API，可能产生额外调用费用。"><html:input id="transyh-auto-highlights" type="checkbox"/> 翻译完成后自动标注重点</html:label></html:p>
+    <html:p><html:label for="transyh-highlight-density">标注密度 </html:label><html:select id="transyh-highlight-density">
+      <html:option value="concise">精简：最重要的发现、数据与创新</html:option>
+      <html:option value="smart" selected="selected">智能：有学术价值的重点（默认）</html:option>
+      <html:option value="full">充分：更多有证据支持的有效信息</html:option>
+    </html:select></html:p>
     <html:p style="display:flex;gap:8px;"><html:button id="transyh-save">保存设置</html:button><html:button id="transyh-test">测试连接</html:button><html:button id="transyh-detect">检测本地引擎</html:button></html:p>
     <html:p id="transyh-status" role="status" style="white-space:pre-wrap;min-height:2em;"/>
     <html:p>首次使用：运行随源码或安装包提供的 install-engine.command（macOS）或 install-engine.ps1（Windows）。首次翻译会下载开源版式模型与字体，需要网络和磁盘空间。</html:p>

@@ -44,7 +44,7 @@ async function highlightAttachment(attachment: any, config = engine.config()): P
     const outputDir = PathUtils.join(directory, "staging", Services.uuid.generateUUID().toString().slice(1, -1));
     progress.update({ type: "progress", progress: 0, message: "读取中文 PDF，定位科研重点…" }); progress.show();
     try {
-      const result = await engine.run("highlight", { ...config, input, protectedOriginal, outputDir,
+      const result = await engine.run("highlight", { ...config, highlightDensity: pref("highlightDensity", "smart"), input, protectedOriginal, outputDir,
         cacheDir: PathUtils.join(directory, "cache") }, event => progress.update(event), run);
       if (run.cancelled) throw new Error("AI 标注已取消，原译文保留。");
       if (!result.unchanged) {
@@ -209,6 +209,8 @@ export async function initPreferences(win: any): Promise<void> {
   get("base").value = pref("baseURL"); get("model").value = pref("model"); get("python").value = pref("pythonPath");
   get("concurrency").value = pref("concurrency", "4");
   get("auto-highlights").checked = pref("autoHighlights") === "true";
+  const density = pref("highlightDensity", "smart");
+  get("highlight-density").value = ["concise", "smart", "full"].includes(density) ? density : "smart";
   get("http").checked = !!pref("httpAllowedBase") && pref("httpAllowedBase") === pref("baseURL");
   const status = (message: string) => { get("status").textContent = message; };
   let oldBase = pref("baseURL");
@@ -220,11 +222,14 @@ export async function initPreferences(win: any): Promise<void> {
     if (!get("model").value.trim()) throw new Error("请填写 Model。");
     const concurrency = Number(get("concurrency").value);
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new Error("并发请求数应为 1–8 的整数。");
+    const density = get("highlight-density").value;
+    if (!["concise", "smart", "full"].includes(density)) throw new Error("请选择有效的标注密度。");
     await credentials.set(base, get("key").value.trim());
     setPref("httpAllowedBase", allowedHTTPBase);
     setPref("baseURL", base); setPref("model", get("model").value.trim()); setPref("pythonPath", get("python").value.trim());
     setPref("concurrency", String(concurrency));
     setPref("autoHighlights", String(get("auto-highlights").checked));
+    setPref("highlightDensity", density);
     oldBase = base; get("base").value = base;
   };
   get("save").addEventListener("click", async () => { try { await save(); status("已保存。API Key 保存在本地凭据管理器。"); } catch (e: any) { status(e.message); } });

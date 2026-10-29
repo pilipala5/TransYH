@@ -85,14 +85,16 @@ class Handler(BaseHTTPRequestHandler):
         text=data['messages'][-1]['content']
         if any('严谨的学术论文精读助手' in m.get('content','') for m in data['messages']):
             # Deliberately scripted candidates, not an AI accuracy evaluation.
-            from highlight_fixtures import GOLD
+            from highlight_fixtures import GOLD,DENSITY_CASES
             payload=json.loads(text)
             highlights=[]
+            reference=DENSITY_CASES if model.startswith('fixture-density-') else GOLD
             for paragraph in payload['paragraphs']:
-                for gold in GOLD:
+                for gold in reference:
                     if gold['quote'] in paragraph['text']:
                         highlights.append({'paragraph_id':paragraph['paragraph_id'],'quote':gold['quote'],
-                            'type':gold['type'] or ('innovation' if gold['id']=='routine' else 'finding'), 'confidence':.99})
+                            'type':gold['type'] or ('innovation' if gold['id']=='routine' else 'finding'),
+                            'confidence':.99,'importance':gold.get('importance','core')})
             output=json.dumps({'highlights':highlights},ensure_ascii=False)
             if model.startswith('fixture-highlight-invalid'):output='not valid JSON'
         elif '## Here is the input:' in text:

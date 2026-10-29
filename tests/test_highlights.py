@@ -10,6 +10,7 @@ sys.path.insert(0,str(ROOT/'engine'));sys.path.insert(0,str(ROOT/'tests'))
 from highlight_pdf import (COLORS, HighlightError, extract, eligible, fingerprint, heading,
     locate, metadata, render_layer, validate_candidates, verify_preserved)
 from highlight_fixtures import create, GOLD
+from highlight_fixtures import create_density, DENSITY_CASES
 
 
 @pytest.fixture
@@ -144,12 +145,12 @@ def test_ordinary_description_in_results_is_not_a_finding(paper):
     assert not accepted and skipped=={'evidence':1}
 
 
-def test_duplicate_and_page_budget_are_enforced(paper):
+def test_duplicate_and_overlap_are_enforced(paper):
     with pymupdf.open(paper) as pdf:paragraphs=extract(pdf)
     candidates=rows(paragraphs)
     accepted,skipped=validate_candidates(paragraphs,candidates+candidates)
     assert len(accepted)==3 and sum(skipped.values())==3
-    assert max(__import__('collections').Counter(next(p for p in paragraphs if p['paragraph_id']==r['paragraph_id'])['page'] for r in accepted).values())==2
+    assert 'density' not in skipped
 
 
 def test_raster_image_objects_and_placements_survive(paper,tmp_path):
