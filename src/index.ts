@@ -34,18 +34,38 @@ export async function translate(item: any, options: { refresh?: boolean } = {}):
     if (existing && !options.refresh) { notify("已复用现有中文附件，未调用 API。"); return existing; }
     const sourceState = await stamp(source);
     const input = await source.getFilePathAsync();
-    const token = Services.uuid.generateUUID().toString().slice(1, -1);
+    // Freeze the configuration for prepare, translate and completion, even if
+    // the preferences change while the worker is running. Keys stay in pipes.
+    const config = engine.config();
+    const taskParams = { ...config, input, sourceID: `${source.libraryID}/${source.key}`,
+      taskDir: PathUtils.join(Zotero.DataDirectory.dir, "transyh", "retranslation") };
+    let task = options.refresh ? await engine.run("prepareRefresh", taskParams, undefined, run) : undefined;
+    if (task?.resumed && await translatedFor(source, task.refreshToken)) {
+      // Recover the narrow crash window after Zotero saved the attachment but
+      // before the local task was marked completed. A new explicit refresh
+      // must then start a fresh namespace instead of duplicating that import.
+      await engine.run("completeRefresh", { ...taskParams, refreshToken: task.refreshToken }, undefined, run);
+      task = await engine.run("prepareRefresh", taskParams, undefined, run);
+    }
+    const token = task?.refreshToken || Services.uuid.generateUUID().toString().slice(1, -1);
+    // Cache identity survives retries; attachment ordering follows this attempt.
+    // A task resumed after a newer configuration must become the latest version.
     const version = `${Date.now()}-${token}`;
     const outputDir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "jobs", `${source.libraryID}-${source.key}`, version);
     await IOUtils.makeDirectory(outputDir, { permissions: 0o700, ignoreExisting: true });
     progress.show();
     try {
-      const result = await engine.run("translate", { input, outputDir, ...(options.refresh ? { refreshToken: token } : {}) }, event => {
+      const result = await engine.run("translate", { ...config, input, outputDir,
+        ...(options.refresh ? { ...taskParams, refreshToken: token } : {}) }, event => {
         progress.update(event);
       }, run);
       if (!result.path) throw new Error("本地引擎没有返回中文 PDF。");
       if (result.quality?.status === "structural_error") throw new Error("译文存在结构性错误，未导入；已有译文保留。");
       const attachment = await importTranslation(source, result.path, sourceState, { refresh: options.refresh, version });
+      if (options.refresh) {
+        try { await engine.run("completeRefresh", { ...taskParams, refreshToken: token }, undefined, run); }
+        catch { notify("新译文已保存；任务状态保存未完成，下次重译会核对已导入版本。", true); }
+      }
       // Imported attachment owns its own copy; remove the generated duplicate.
       await IOUtils.remove(result.path, { ignoreAbsent: true }).catch(() => {});
       progress.finish(result.quality?.status === "suspect");

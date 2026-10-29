@@ -56,7 +56,7 @@ export async function stamp(item: any): Promise<string> {
   const info = await IOUtils.stat(path);
   return sourceStamp(info.size, info.lastModified);
 }
-export async function translatedFor(source: any): Promise<any | undefined> {
+export async function translatedFor(source: any, taskToken?: string): Promise<any | undefined> {
   const expectedStamp = await stamp(source);
   let ids: number[];
   if (source.parentItem) ids = source.parentItem.getAttachments();
@@ -72,6 +72,7 @@ export async function translatedFor(source: any): Promise<any | undefined> {
     if (!item || item.deleted || !item.isPDFAttachment()) continue;
     const tags = item.getTags().map((t: any) => t.tag);
     if (tags.includes(TAG + source.key) && tags.includes(STAMP + expectedStamp)
+      && (!taskToken || tags.some((tag: string) => tag.startsWith(VERSION) && tag.endsWith("-" + taskToken)))
       && await item.fileExists()) candidates.push(item);
   }
   // v0.1.3 attachments have no version tag and remain valid fallbacks.
@@ -93,6 +94,7 @@ export async function importTranslation(source: any, output: string, expectedSta
     item.addTag(STAMP + expectedStamp, 1);
     if (options.version) item.addTag(VERSION + options.version, 1);
     await item.saveTx();
+    if (!await item.fileExists()) throw new Error("新译文附件文件不可用，已有译文保留。");
   } catch (error) {
     // Only the new, unexposed import is rolled back. Existing files and user
     // annotations are never removed or edited by translation/retranslation.

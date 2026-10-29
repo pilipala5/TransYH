@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import time
+import unicodedata
 
 import pymupdf
 
@@ -43,6 +44,82 @@ def normalized(text):
     return re.sub(r"\s+", "", plain(text)).casefold()
 
 
+# Deliberately bounded grammar: prose, code, unknown font mappings and complex
+# formulae are outside this fallback's coverage. BabelDOC's exact placeholders
+# are stronger evidence and are checked independently of English prose length.
+MATH_NAMES = set("mc mc2 yhat sin cos tan log ln exp max min lim sqrt alpha beta gamma delta theta sigma sum".split())
+MATH_TOKEN = re.compile(r"\d+(?:\.\d+)?|[^\W\d_]+\d*|[^\s]", re.UNICODE)
+MATH_SIGNS = set("=+-*/^_()[]{}<>≤≥≈≃∑∫∞")
+MATH_ALIASES = str.maketrans({"−": "-", "–": "-", "×": "*", "⋅": "*", "∙": "*", "·": "*",
+                             "∗": "*", "⁄": "/", "≤": "=", "≥": "=", "≈": "=", "≃": "="})
+
+
+def math_text(text):
+    return unicodedata.normalize("NFKC", text).translate(MATH_ALIASES)
+
+
+def math_signature(text):
+    # Explicit/implicit multiplication and raised/lowered text objects often
+    # extract differently, despite preserving the same printed mathematics.
+    return re.sub(r"[\s^_*]", "", math_text(text))
+
+
+def formula_rows(lines):
+    """Join horizontally split PDF objects, including overlapping script runs."""
+    rows = []
+    for box, text in sorted(lines, key=lambda r: (r[0].y0, r[0].x0)):
+        attached = False
+        for bounds, parts in reversed(rows):
+            overlap = min(bounds.y1, box.y1) - max(bounds.y0, box.y0)
+            if overlap > min(bounds.height, box.height) * 0.25:
+                parts.append((box, text))
+                bounds.include_rect(box)
+                attached = True
+                break
+            if bounds.y1 < box.y0 - box.height:
+                break
+        if not attached:
+            rows.append((pymupdf.Rect(box), [(box, text)]))
+    return [" ".join(text for _, text in sorted(parts, key=lambda r: (r[0].x0, -r[0].y0)))
+            for _, parts in rows]
+
+
+def formula_fragments(lines):
+    """Extract complete, small equations rather than their surrounding sentence.
+
+    Absence is only a suspicion. No semantic equivalence or general mathematical
+    recognition is claimed. Incomplete/ambiguous expressions are not judged.
+    """
+    fragments = []
+    for line in formula_rows(lines):
+        if "\ufffd" in line or re.search(r"\(cid:\d+\)|https?://|==|=>", line):
+            continue
+        run = []
+        for token in MATH_TOKEN.findall(math_text(line)) + ["STOP"]:
+            atom = (token[0].isdigit() or (token.isalnum() and
+                    (len(token) == 1 or token in MATH_NAMES or bool(re.fullmatch(r"[a-z]{1,2}\d+", token)))))
+            if atom or token in MATH_SIGNS:
+                run.append(token)
+                continue
+            if "=" in run and 3 <= len(run) <= 60:
+                equation = "".join(run)
+                lhs, rhs = equation.split("=", 1)
+                stack = []
+                balanced = True
+                for char in equation:
+                    if char in "([{": stack.append(char)
+                    elif char in ")]}":
+                        if not stack or stack.pop() != {")": "(", "]": "[", "}": "{"}[char]:
+                            balanced = False
+                            break
+                if (balanced and not stack and lhs and rhs and re.search(r"\w", lhs)
+                        and re.search(r"\w", rhs) and rhs[-1] not in "+-*/^_=<>"
+                        and lhs[-1] not in "+-*/^_=<>"):
+                    fragments.append((math_signature(lhs), math_signature(equation)))
+            run = []
+    return fragments
+
+
 class QualityAudit:
     def __init__(self):
         self.issues = Counter()
@@ -52,6 +129,7 @@ class QualityAudit:
         self.tracking = False
         self.structural = False
         self.pages = 0
+        self.tracked_formulas = {}
 
     def add(self, code, page=None, count=1, structural=False):
         self.issues[(code, page)] += count
@@ -68,12 +146,24 @@ class QualityAudit:
                     if re.match(r"^\s*(?:references|bibliography)\s*$", plain(src), re.I):
                         references = True
                     self.paragraphs += 1
+                    dst = row.get("output")
+                    for placeholder in row.get("placeholders", []):
+                        if placeholder.get("type") != "formula" or dst is None:
+                            continue
+                        token = placeholder.get("placeholder")
+                        if not token:
+                            continue
+                        expected = max(1, src.count(token))
+                        if dst.count(token) < expected:
+                            self.add("possible_formula_loss", number)
+                        elif number is not None and placeholder.get("formula_chars"):
+                            fragments = formula_fragments([(pymupdf.Rect(0, 0, 100, 10), placeholder["formula_chars"])])
+                            self.tracked_formulas.setdefault(number, set()).update(fragments)
                     # Reference lists, short labels and formula-only fragments
                     # are not evidence of untranslated English body prose.
                     if references or not is_prose(src):
                         continue
                     self.prose += 1
-                    dst = row.get("output")
                     attempts = row.get("llm_translate_trackers", [])
                     failed = any(t.get("has_error") for t in attempts)
                     if dst is None:
@@ -87,11 +177,6 @@ class QualityAudit:
                         self.add("failed_retained_english" if failed else "unchanged_english_prose", number)
                     elif len(normalized(dst)) < len(normalized(src)) * 0.12:
                         self.add("possible_truncation", number)
-                    for placeholder in row.get("placeholders", []):
-                        if placeholder.get("type") == "formula" and dst is not None:
-                            token = placeholder.get("placeholder")
-                            if token and token not in dst:
-                                self.add("possible_formula_loss", number)
         if self.prose >= 3 and self.unchanged / self.prose >= 0.3:
             self.add("large_untranslated_body")
 
@@ -241,13 +326,20 @@ def check_pdf(source, translated, audit=None):
                         # A renderer may replace an image with vector graphics.
                         # This is only a suspicion, never a structural failure.
                         audit.add("possible_image_loss", number)
-                # Only short, explicit equation lines. Complex/vector equations
-                # remain outside this lightweight check's coverage.
-                compact = re.sub(r"\s+", "", text)
-                for _, line in source_lines:
-                    if re.search(r"[=∑∫]", line) and 3 <= len(line.strip()) <= 80 and len(WORDS.findall(line)) <= 8:
-                        if re.sub(r"\s+", "", line) not in compact:
-                            audit.add("possible_formula_loss", number)
+                compact = math_signature(text)
+                candidates = formula_fragments(target_lines)
+                equations = set(formula_fragments(source_lines)) | audit.tracked_formulas.get(number, set())
+                for lhs, equation in equations:
+                    if equation in compact:
+                        continue
+                    # Matching glyphs tolerate sub/superscript object ordering.
+                    # A surviving equation with the same left side may have
+                    # equivalent typography (fractions, implicit products, etc.).
+                    # Do not label those as missing or judge their semantics.
+                    if any(other_lhs == lhs or Counter(other) == Counter(equation)
+                           for other_lhs, other in candidates):
+                        continue
+                    audit.add("possible_formula_loss", number)
             except Exception:
                 audit.add("graphics_check_unavailable", number)
     return audit.report()

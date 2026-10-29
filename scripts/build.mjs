@@ -10,7 +10,7 @@ await build({ entryPoints: [path.join(root, 'src/index.ts')], bundle: true, form
   globalName: 'TransYH', target: 'firefox128', outfile: path.join(root, 'build/content/transyh.js'),
   legalComments: 'eof' });
 await mkdir(path.join(root, 'build/engine'), { recursive: true });
-for (const name of ['worker.py', 'quality.py', 'macos_keychain.py', 'requirements.txt', 'requirements-macos.lock']) {
+for (const name of ['worker.py', 'quality.py', 'refresh_tasks.py', 'macos_keychain.py', 'requirements.txt', 'requirements-macos.lock']) {
   await cp(path.join(root, 'engine', name), path.join(root, 'build/engine', name));
 }
 await cp(path.join(root, 'LICENSE'), path.join(root, 'build/LICENSE'));

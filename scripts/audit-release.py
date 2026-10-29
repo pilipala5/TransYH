@@ -9,18 +9,18 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT/'package.json').read_text())['version']
 XPI_FILES = {'manifest.json','bootstrap.js','content/transyh.js','content/preferences.js','content/preferences.xhtml',
-             'engine/worker.py','engine/quality.py','engine/macos_keychain.py','engine/requirements.txt',
+             'engine/worker.py','engine/quality.py','engine/refresh_tasks.py','engine/macos_keychain.py','engine/requirements.txt',
              'engine/requirements-macos.lock','LICENSE','THIRD_PARTY_NOTICES.md'}
 FIXTURES = {'tests/fixtures/paper-english.pdf','tests/fixtures/switch-chinese.pdf'}
 FORBIDDEN = {'.test-profile','.test-data','.test-runtime','.research','.venv','node_modules','__pycache__',
-             '.pytest_cache','output','jobs','cache','logins.json','key4.db','cert9.db','reading.json','quality-report.json'}
+             '.pytest_cache','output','jobs','cache','retranslation','refresh-tasks.sqlite3','logins.json','key4.db','cert9.db','reading.json','quality-report.json'}
 SECRET = re.compile(rb'sk-(?:proj-)?[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----')
 errors = []
 
 
 def check_entry(name, data, label):
     parts = Path(name).parts
-    if any(p in FORBIDDEN or p.startswith('.env') for p in parts) or name.endswith(('.log','.pyc','.pem','.key')):
+    if any(p in FORBIDDEN or p.startswith('.env') for p in parts) or name.endswith(('.log','.pyc','.pem','.key','.sqlite3','.sqlite3-journal','.sqlite3-wal','.sqlite3-shm')):
         errors.append(f'{label}: forbidden file {name}')
     if name.lower().endswith('.pdf') and name not in FIXTURES:
         errors.append(f'{label}: non-fixture PDF {name}')
@@ -55,6 +55,9 @@ xpi = ROOT/'dist'/f'TransYH-{VERSION}.xpi'
 check_xpi(xpi.read_bytes(),'XPI')
 for name in XPI_FILES:
     check_entry(name,(ROOT/'build'/name).read_bytes(),'build')
+    source = ROOT/('addon/'+name if name in {'manifest.json','bootstrap.js'} or name.startswith('content/') else name)
+    if name != 'content/transyh.js' and (ROOT/'build'/name).read_bytes() != source.read_bytes():
+        errors.append(f'build: source differs from build: {name}')
 archive_path = ROOT/'dist'/f'TransYH-{VERSION}-source.zip'
 archive_count = 0
 if archive_path.exists():
@@ -64,6 +67,8 @@ if archive_path.exists():
             name = entry.removeprefix(prefix)
             data = archive.read(entry)
             check_entry(name,data,'source ZIP');archive_count+=1
+            if data != (ROOT/name).read_bytes():
+                errors.append(f'source ZIP: local source differs: {name}')
             if name.endswith('.xpi'):
                 check_xpi(data,'source ZIP embedded XPI')
 if errors:

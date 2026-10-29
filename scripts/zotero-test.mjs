@@ -123,7 +123,9 @@ try {
   assert.ok(results.v014.refreshAPICalls>0,'Refresh must bypass the already warm paragraph cache');
   assert.equal(results.v014.idleStateWrites,0);
   assert.ok(results.v014.closedTabs>=2);
-  const expectedZHID=results.v014.newZHID;
+  console.log('Testing persisted refresh: partial failure, actual cache hits, cancellation and import acknowledgement');
+  results.refreshRecovery=await invoke(await readFile(path.join(root,'tests/zotero-refresh.js'),'utf8'),600000);
+  const expectedZHID=results.refreshRecovery.newZHID;
 
   console.log('Testing restart persistence');
   results.beforeRestart = await invoke(`const a=Zotero.TransYH;await a.readers.showChinese(Zotero.Items.get(${source.id}));const s=[...a.readers.sessions.values()].find(x=>x.source.id===${source.id});await s.active.restore({pageIndex:1,scale:133,top:555,left:0,scrollMode:0,spreadMode:0});s.save();await a.store.flush();s.reader._window.Zotero_Tabs.select(s.reader.tabID);return {state:s.active.capture(),language:s.language};`);

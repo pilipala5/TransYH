@@ -181,6 +181,17 @@ def configure_cache(translator, base, refresh_token=None):
         translator.add_cache_impact_parameters("transyh_refresh", token)
 
 
+def refresh_task(action, config):
+    from refresh_tasks import prepare, complete, validate
+    try:
+        base = normalize_base(config.get("baseURL", ""), config.get("allowedHTTPBase", ""))
+        if not config.get("model", "").strip():
+            raise ValueError
+        return {"prepareRefresh": prepare, "completeRefresh": complete, "validateRefresh": validate}[action](config, base)
+    except Exception:
+        raise UserError("TASK_STATE", "本地重译任务记录无法读写，或原 PDF / API 配置已变化。已有译文和缓存保留，请检查后重试。") from None
+
+
 async def translate(config: dict):
     concurrency = request_concurrency(config)
     check_engine()
@@ -201,6 +212,7 @@ async def translate(config: dict):
     output = Path(config["outputDir"]).resolve()
     if not source.is_file():
         raise UserError("INPUT", "原始 PDF 文件不存在。")
+    refresh_identity = refresh_task("validateRefresh", config) if config.get("refreshToken") else None
     with pymupdf.open(source) as pdf:
         if pdf.needs_pass:
             raise UserError("PASSWORD", "请先提供已解密的 PDF。")
@@ -302,6 +314,8 @@ async def translate(config: dict):
             raise UserError("PDF_STRUCTURE", "译文 PDF 损坏、页数或页面尺寸不匹配，未导入；已有译文保留。详见本地质量报告。")
         if problems:
             raise problems[0]
+        if refresh_identity is not None and refresh_task("validateRefresh", config) != refresh_identity:
+            raise UserError("INPUT", "翻译期间原 PDF 已发生变化，未导入；已有译文保留。")
         return {"path": str(path), "message": "中文 PDF 已生成。", "pages": page_count,
                 "cachedParagraphs": translator.translate_cache_call_count,
                 "quality": quality, "qualityReport": report_path}
@@ -327,6 +341,8 @@ def main():
             result = test_connection(config)
         elif action == "translate":
             result = asyncio.run(translate(config))
+        elif action in ("prepareRefresh", "completeRefresh"):
+            result = refresh_task(action, config)
         else:
             raise UserError("PROTOCOL", "未知引擎操作。")
     emit("done", **result)

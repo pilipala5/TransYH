@@ -97,6 +97,8 @@ test("translation versions retain legacy attachments and roll back only a failed
     const fresh = await importTranslation(source, "/isolated/new.pdf", "1024:2000", { refresh: true, version: "1793200000000-fixture" });
     assert.notEqual(fresh.id, legacy.id);
     assert.equal(await translatedFor(source), fresh);
+    assert.equal(await translatedFor(source, "fixture"), fresh);
+    assert.equal(await translatedFor(source, "unimported-task"), undefined);
     assert.deepEqual(legacy.annotations, ["user annotation remains"]);
     assert.equal(legacy.deleted, false);
     assert.deepEqual(fresh.getTags().map((x: any) => x.tag).sort(), ["TransYH:source:SOURCE", "TransYH:stamp:1024:2000", "TransYH:version:1793200000000-fixture"].sort());
