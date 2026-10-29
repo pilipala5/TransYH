@@ -103,6 +103,7 @@ def logo():
             d.ellipse((x - 4 * scale, y - 4 * scale, x + 4 * scale, y + 4 * scale), fill=color)
     im = im.resize((512, 512), Image.Resampling.LANCZOS)
     save(im, "logo.png")
+    save(im.resize((96, 96), Image.Resampling.LANCZOS), "logo-preview.png")
     return im
 
 
