@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 import time
@@ -166,6 +167,37 @@ def check_engine():
     if version != "0.6.4":
         raise UserError("ENGINE_VERSION", f"检测到 BabelDOC {version}；当前 TransYH 需要 0.6.4，请运行安装脚本。")
     return {"version": version, "message": f"本地 BabelDOC {version} 可用。模型和字体会在首次翻译时自动下载。"}
+
+
+def inspect_input(config: dict):
+    """Recognize Chinese body text locally, including bilingual title pages."""
+    import pymupdf
+    source = Path(config["input"])
+    if not source.is_file():
+        raise UserError("INPUT", "原始 PDF 文件不存在。")
+    with pymupdf.open(source) as pdf:
+        if pdf.needs_pass:
+            raise UserError("PASSWORD", "请先提供已解密的 PDF。")
+        if not len(pdf):
+            raise UserError("INPUT", "PDF 不包含可阅读的页面。")
+        # Sample the body, rather than letting an English abstract or the
+        # reference list decide the language of a Chinese research paper.
+        last = max(0, int((len(pdf) - 1) * .8))
+        indices = sorted({round(i * last / 6) for i in range(7)})
+        substantial = chinese = han_total = latin_total = 0
+        for index in indices:
+            text = pdf[index].get_text()
+            han = len(re.findall(r"[\u3400-\u9fff\U00020000-\U0002fa1f]", text))
+            latin = len(re.findall(r"[A-Za-z]", text))
+            if han + latin < 120:
+                continue
+            substantial += 1
+            han_total += han
+            latin_total += latin
+            chinese += int(han >= 60 and han / (han + latin) >= .35)
+        mostly_chinese = (substantial > 0 and chinese / substantial >= .6
+                          and han_total / max(1, han_total + latin_total) >= .35)
+        return {"language": "zh" if mostly_chinese else "unknown", "pages": len(pdf)}
 
 
 def configure_cache(translator, base, refresh_token=None):
@@ -357,6 +389,8 @@ def main():
         action = config.get("action")
         if action == "check":
             result = check_engine()
+        elif action == "inspect":
+            result = inspect_input(config)
         elif action == "readCredential":
             from macos_keychain import get_api_key
             result = {"apiKey": get_api_key(config["baseURL"])}

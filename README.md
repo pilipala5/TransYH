@@ -4,7 +4,7 @@
 
 Translate research PDFs into Chinese, switch languages in one Zotero tab, and highlight evidence-backed findings with your own OpenAI-compatible API.
 
-当前开发版 **0.2.0** · 已验证 **macOS Apple Silicon / Zotero 10.0.6**。本仓库提供开发分支中的安装文件，尚未创建正式 GitHub Release。
+当前开发版 **0.2.2** · 已验证 **macOS Apple Silicon / Zotero 10.0.6**。本仓库提供开发分支中的安装文件，尚未创建正式 GitHub Release。
 
 ## 看看实际效果
 
@@ -27,6 +27,7 @@ Translate research PDFs into Chinese, switch languages in one Zotero tab, and hi
 
 </details>
 
+- **中文原文直接阅读**：本地抽样识别中文为主的正文，点击“中文”直接阅读原件；工具栏持续显示任务阶段、百分比和耗时，并可直接取消。
 - **全文英译中**：本地 BabelDOC 解析和排版，尽可能保留公式、图表与页面结构；英文原件保留。
 - **同标签中文 / EN 切换**：复用原生阅读器，保存页码、缩放和阅读位置。
 - **PDF 内 AI 重点**：蓝色核心发现，橙色关键数据，紫色有明确依据的方法创新；已有译文也能直接标注。
@@ -37,8 +38,8 @@ Translate research PDFs into Chinese, switch languages in one Zotero tab, and hi
 
 **需要安装两部分：Zotero 插件 XPI + 本地 Python/BabelDOC 引擎。仅安装 XPI 还不能翻译。**
 
-1. 下载 [TransYH-0.2.0.xpi](dist/TransYH-0.2.0.xpi?raw=true) 和[完整源码包](dist/TransYH-0.2.0-source.zip?raw=true)。源码包包含本地引擎安装脚本，先解压。
-2. Zotero → **工具 → 插件** → 齿轮菜单 → **从文件安装插件**，选择 XPI。
+1. 下载 [TransYH-0.2.2.xpi](dist/TransYH-0.2.2.xpi?raw=true) 和[完整源码包](dist/TransYH-0.2.2-source.zip?raw=true)。源码包包含本地引擎安装脚本，先解压。
+2. Zotero → **工具 → 插件** → 齿轮菜单 → **从文件安装插件**，选择 XPI。更新时也通过此入口安装，让 Zotero 重新加载插件及配套引擎文件；安装后可在插件管理器核对版本 **0.2.2**。
 3. macOS 安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)；使用 Homebrew 可运行 `brew install uv`。在解压目录中双击 `install-engine.command`，或在该目录的终端运行：
 
    ```bash
@@ -77,6 +78,7 @@ Windows 的 `install-engine.ps1` 和 Linux 安装路径已实现，**尚未完�
 - 已验证 Zotero **10.0.6 / macOS Apple Silicon**。manifest 支持 9–10，但 Zotero 9.x、Windows、Linux 和 Intel macOS 尚未完成独立客户端验证。
 - 支持原生 PDF 阅读模式；中文辅助视图只读，原文与译文批注不互相复制。不支持重排文本、EPUB、外部阅读器或独立阅读窗口。
 - 没有 OCR；扫描件、加密或损坏 PDF 不适用。图片内部文字通常保留原图，复杂表格、特殊字体、密集公式仍需人工检查。
+- 中文检测使用本地文字抽样；文字稀少、提取异常或复杂混排的 PDF 可能无法正确识别。
 - AI 标注不证明研究结论真实、因果关系成立或方法具有跨文献新颖性。错误译文也可能影响选择，重要数值和结论应回看英文。
 - 同时驻留两份 PDF 会增加内存；大型论文、云同步冲突及极端磁盘故障仍存在未验证边界。
 
