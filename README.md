@@ -1,13 +1,8 @@
-<p align="center">
-  <img src="docs/brand/logo.svg" width="76" height="76" alt="TransYH：同页双语阅读与重点识别的品牌标识">
-</p>
-
-<h1 align="center">TransYH</h1>
+<h1 align="center"><img src="docs/brand/logo.svg" align="middle" width="44" height="44" alt="TransYH：同页双语阅读与重点识别的品牌标识"> TransYH</h1>
 
 <p align="center"><strong>让科研阅读回归阅读本身。</strong></p>
 <p align="center">英文论文一键翻译 · 中英文无缝切换 · AI 智能标注重点</p>
-<p align="center">A Zotero plugin for full-paper Chinese translation, seamless language switching, and AI highlights.</p>
-<p align="center"><sub>Open Source &nbsp; / &nbsp; Zotero &nbsp; / &nbsp; Bring Your Own API</sub></p>
+<p align="center"><sub>Full-paper Chinese translation, language switching and AI highlights — for Zotero.<br>Open Source &nbsp; / &nbsp; Zotero &nbsp; / &nbsp; Bring Your Own API</sub></p>
 
 在 Zotero 中完整翻译英文科研 PDF，尽可能保留论文版式；原文随时可见，重点直接标在中文译文里。
 
