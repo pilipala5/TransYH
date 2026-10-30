@@ -9,13 +9,13 @@
 ![真实 Zotero 中文 PDF 两段正文中的橙色关键数据与蓝色核心发现、同页表格节选；右上为中文 / EN 控件的独立放大细节](docs/brand/hero.png)
 
 <p align="center">
-  <a href="dist/TransYH-0.2.3.xpi?raw=true">Download</a> ·
+  <a href="dist/TransYH-0.2.4.xpi?raw=true">Download</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="docs/demo/README.md">Demo</a> ·
   <a href="docs/USAGE.md">Documentation</a>
 </p>
 
-<p align="center"><sub>当前开发版 v0.2.3 · 已验证 macOS Apple Silicon / Zotero 10.0.6</sub></p>
+<p align="center"><sub>当前开发版 v0.2.4 · 已验证 macOS Apple Silicon / Zotero 10.0.6</sub></p>
 
 <sub>真实界面截取自 v0.2.0 三页演示：Guo et al. (2025), PLOS ONE；仅原第 7、9、13 页，不代表整篇准确率验证。表中数值属于原论文的生态位模型。<a href="docs/demo/README.md">来源、CC BY 4.0 许可与核对记录 →</a></sub>
 
@@ -39,14 +39,14 @@ AI 直接在中文 PDF 中标记**核心发现、关键数据和有依据的方�
 
 **蓝色：核心发现 · 橙色：关键数据 · 紫色：方法创新。** 本次真实演示接受了 4 处数据、1 处发现，没有紫色创新标记；未为展示补画高亮。已有译文可直接补标，自动标注默认关闭。
 
-**v0.2.3 阅读体验：** 阅读器内查看阶段、进度与耗时，随时取消；中文阅读器顶部可直接“标注重点”。翻译与重点识别支持 **1–10 并发**，默认 4，实际速度取决于模型和服务商限流。[查看版本记录 →](CHANGELOG.md)
+**v0.2.4：** 翻译、AI 标注和连接测试默认使用 Responses API，组内服务按现有渠道顺序与额度自动切换。阅读器内查看阶段、进度与耗时，随时取消；中文阅读器顶部可直接“标注重点”。翻译与重点识别支持 **1–10 并发**，默认 4，实际速度取决于模型和服务商限流。[查看版本记录 →](CHANGELOG.md)
 
 ## Quick Start
 
 **必须安装两部分：Zotero 插件 XPI + 本地 BabelDOC 引擎。仅安装 XPI 不能翻译。** 另需你自己的 OpenAI-compatible API。
 
-1. **安装插件。** 下载 [TransYH-0.2.3.xpi](dist/TransYH-0.2.3.xpi?raw=true)，在 Zotero → **工具 → 插件 → 齿轮 → 从文件安装插件** 中选择它。更新也使用此入口；当前不提供自动更新或正式 GitHub Release。
-2. **安装本地引擎。** 下载并解压 [v0.2.3 完整源码包](dist/TransYH-0.2.3-source.zip?raw=true)。macOS 先安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)（如 `brew install uv`），再双击包内的 `install-engine.command`。脚本安装独立 Python 3.12 与 BabelDOC 0.6.4；首次还需下载模型与字体，请预留网络、至少约 1 GB 空间及额外 PDF 处理空间。[其他系统与安装细节 →](docs/USAGE.md#安装)
+1. **安装插件。** 下载 [TransYH-0.2.4.xpi](dist/TransYH-0.2.4.xpi?raw=true)，在 Zotero → **工具 → 插件 → 齿轮 → 从文件安装插件** 中选择它。更新也使用此入口；当前不提供自动更新或正式 GitHub Release。
+2. **安装本地引擎。** 下载并解压 [v0.2.4 完整源码包](dist/TransYH-0.2.4-source.zip?raw=true)。macOS 先安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)（如 `brew install uv`），再双击包内的 `install-engine.command`。脚本安装独立 Python 3.12 与 BabelDOC 0.6.4；首次还需下载模型与字体，请预留网络、至少约 1 GB 空间及额外 PDF 处理空间。[其他系统与安装细节 →](docs/USAGE.md#安装)
 3. **配置并阅读。** Zotero → **设置 → TransYH**，检测本地引擎，填写 **API Base URL、API Key、Model**，保存并测试连接。选中英文 PDF，右键 → **翻译全文 · TransYH**；完成后用顶部 **中文 / EN** 切换，按需点击 **标注重点**。
 
 ## API 与费用

@@ -18,6 +18,8 @@ import time
 import uuid
 from urllib import parse
 
+from api_client import APIResponseError, APITranslatorMixin, api_mode, create_text
+
 PROTOCOL = sys.stdout
 PROTOCOL_LOCK = threading.Lock()
 
@@ -110,8 +112,10 @@ def normalize_base(value: str, allowed_http_base: str = "") -> str:
     if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
         raise UserError("CONFIG", "API Base URL 格式不正确。")
     path = parts.path.rstrip("/")
-    if path.endswith("/chat/completions"):
-        path = path[:-len("/chat/completions")]
+    for endpoint in ("/chat/completions", "/responses"):
+        if path.endswith(endpoint):
+            path = path[:-len(endpoint)]
+            break
     base = parse.urlunsplit((parts.scheme, parts.netloc, path or "/v1", "", ""))
     if parts.scheme == "http" and parts.hostname not in ("localhost", "127.0.0.1", "::1") and base != allowed_http_base:
         raise UserError("CONFIG", "此 HTTP 地址尚未授权，请在设置中允许当前地址使用 HTTP。")
@@ -137,15 +141,12 @@ def test_connection(config: dict):
     model = config.get("model", "").strip()
     if not model:
         raise UserError("CONFIG", "请填写 Model。")
+    mode = request_api_mode(config)
     try:
-        # Use the same SDK and request shape as actual translations. Some
-        # gateways treat a separate urllib/explicit-stream=False client differently.
+        # Use the same API path and parser as translations and highlights.
         with openai.OpenAI(base_url=base,api_key=config.get("apiKey") or "local-no-key",max_retries=0,
             http_client=httpx.Client(timeout=min(float(config.get("timeout",120)),30),follow_redirects=False)) as client:
-            response=client.chat.completions.create(model=model,messages=[{"role":"user","content":"Reply with OK."}])
-        content = response.choices[0].message.content
-        if not isinstance(content, str) or not content.strip():
-            raise ValueError
+            create_text(client, model=model, messages=[{"role":"user","content":"Reply with OK."}], mode=mode)
     except openai.APIStatusError as exc:
         raise status_error(exc.status_code) from None
     except openai.APITimeoutError:
@@ -153,8 +154,16 @@ def test_connection(config: dict):
     except openai.APIConnectionError:
         raise UserError("NETWORK", "无法连接 API，请检查地址、网络和 TLS 证书。") from None
     except (ValueError, KeyError, IndexError, TypeError, AttributeError, openai.APIResponseValidationError):
-        raise UserError("RESPONSE", "API 返回格式不符合 Chat Completions 协议，或返回了空内容。") from None
-    return {"message": "连接成功，模型已返回有效响应。此测试会产生一次最小 API 调用。"}
+        raise UserError("RESPONSE", "API 返回格式不符合所选接口协议，或未返回完整内容。") from None
+    label = "Responses" if mode == "responses" else "Chat Completions"
+    return {"message": f"连接成功（{label}），模型已返回有效响应。此测试会产生一次最小 API 调用。"}
+
+
+def request_api_mode(config):
+    try:
+        return api_mode(config)
+    except ValueError as exc:
+        raise UserError("CONFIG", str(exc)) from None
 
 
 def check_engine():
@@ -226,6 +235,7 @@ def refresh_task(action, config):
 
 async def translate(config: dict):
     concurrency = request_concurrency(config)
+    mode = request_api_mode(config)
     check_engine()
     import httpx
     import openai
@@ -258,7 +268,7 @@ async def translate(config: dict):
     activity = RequestActivity()
     request_slots = threading.BoundedSemaphore(concurrency)
 
-    class BoundedTranslator(OpenAITranslator):
+    class BoundedTranslator(APITranslatorMixin, OpenAITranslator):
         name = "transyh-openai"
 
         def _request(self, fn, *args):
@@ -283,23 +293,26 @@ async def translate(config: dict):
                     issue = status_error(exc.status_code)
                 except UserError as exc:
                     issue = exc
+                except APIResponseError as exc:
+                    issue = UserError("RESPONSE", str(exc))
                 except Exception:
                     issue = UserError("RESPONSE", "API 响应无法解析，请检查模型和接口兼容性。")
                 problems.append(issue)
                 raise issue from None
 
         def do_translate(self, text, rate_limit_params=None):
-            return self._request(OpenAITranslator.do_translate.__wrapped__, text, rate_limit_params)
+            return self._request(APITranslatorMixin.do_translate, text, rate_limit_params)
 
         def do_llm_translate(self, text, rate_limit_params=None):
             if text is None:
                 return None  # BabelDOC probes LLM support with None.
-            return self._request(OpenAITranslator.do_llm_translate.__wrapped__, text, rate_limit_params)
+            return self._request(APITranslatorMixin.do_llm_translate, text, rate_limit_params)
 
     emit("progress", progress=0, message="加载开源版式模型和中文字体；首次使用可能需要下载…")
     high_level.init()
     translator = BoundedTranslator("en", "zh", model, base_url=base, api_key=config.get("apiKey") or "local-no-key",
                                   send_temperature=False, enable_json_mode_if_requested=False)
+    translator.api_mode = mode
     # Bound SDK retries/timeouts and disable redirects (including redirects of secrets).
     translator.client.close()
     translator.client = openai.OpenAI(base_url=base, api_key=config.get("apiKey") or "local-no-key", max_retries=0,
@@ -363,13 +376,16 @@ def highlight_action(action, config):
     try:
         if action == "highlight":
             from highlight_jobs import highlights
-            config = {**config,"baseURL":normalize_base(config.get("baseURL",""),config.get("allowedHTTPBase",""))}
+            config = {**config,"baseURL":normalize_base(config.get("baseURL",""),config.get("allowedHTTPBase","")),
+                      "apiMode":request_api_mode(config)}
             if not config.get("model","").strip():raise HighlightError("请先填写 Model。")
             return highlights(config, emit)
         from highlight_install import install, recover
         return install(config) if action == "installHighlights" else recover(config["installDir"])
     except HighlightError as error:
         raise UserError("HIGHLIGHT", str(error)) from None
+    except APIResponseError as error:
+        raise UserError("RESPONSE", str(error)) from None
     except openai.APIStatusError as error:
         raise status_error(error.status_code) from None
     except openai.APITimeoutError:

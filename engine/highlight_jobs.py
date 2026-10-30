@@ -12,6 +12,8 @@ import uuid
 
 import pymupdf
 
+from api_client import api_mode, create_text
+
 from highlight_pdf import (HighlightError, eligible, extract, fingerprint, metadata,
     density_mode, render_layer, text_identity, validate_candidates)
 
@@ -79,6 +81,7 @@ def config_identity(config):
 def highlights(config, update=lambda *args, **kwargs: None):
     import httpx
     import openai
+    mode = api_mode(config)
     try:
         value = config.get("concurrency", 4)
         concurrency = int(value)
@@ -154,11 +157,11 @@ def highlights(config, update=lambda *args, **kwargs: None):
                 success = False
                 try:
                     payload = [{"paragraph_id":p["paragraph_id"],"page":p["page"],"section":p["section"],"text":p["text"]} for p in batch]
-                    response = client.chat.completions.create(model=config["model"],messages=[
+                    response = create_text(client, model=config["model"], mode=mode, messages=[
                         {"role":"system","content":PROMPT},
                         {"role":"user","content":json.dumps({"paragraphs":payload},ensure_ascii=False)}])
                     try:
-                        content = response.choices[0].message.content
+                        content = response.text
                         if not isinstance(content,str) or len(content) > 200000:raise ValueError
                         result = json.loads(content)
                         if not isinstance(result,dict) or set(result) != {"highlights"}:raise ValueError

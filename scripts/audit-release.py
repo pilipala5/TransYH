@@ -9,7 +9,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT/'package.json').read_text())['version']
 XPI_FILES = {'manifest.json','bootstrap.js','content/transyh.js','content/preferences.js','content/preferences.xhtml',
-             'engine/worker.py','engine/quality.py','engine/refresh_tasks.py','engine/macos_keychain.py','engine/requirements.txt',
+             'engine/worker.py','engine/api_client.py','engine/quality.py','engine/refresh_tasks.py','engine/macos_keychain.py','engine/requirements.txt',
              'engine/highlight_pdf.py','engine/highlight_jobs.py','engine/highlight_install.py',
              'engine/requirements-macos.lock','LICENSE','THIRD_PARTY_NOTICES.md'}
 FIXTURES = {'tests/fixtures/paper-english.pdf','tests/fixtures/switch-chinese.pdf'}

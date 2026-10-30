@@ -7,6 +7,8 @@ test("normalize roots, version roots, nested gateways, full endpoints", () => {
     ["https://provider.example", "https://provider.example/v1"],
     [" https://provider.example/v1/ ", "https://provider.example/v1"],
     ["https://provider.example/v1/chat/completions/", "https://provider.example/v1"],
+    ["https://provider.example/v1/responses/", "https://provider.example/v1"],
+    ["https://gateway.example/api/openai/v1/responses", "https://gateway.example/api/openai/v1"],
     ["https://gateway.example/api/openai/v1", "https://gateway.example/api/openai/v1"],
     ["http://localhost:8080", "http://localhost:8080/v1"],
     ["http://[::1]:8080/chat/completions", "http://[::1]:8080/v1"],
@@ -21,6 +23,7 @@ test("reject unsafe or invalid API addresses", () => {
 test("remote HTTP authorization is bound to one normalized service address", () => {
   const allowed="http://example.internal:8317/v1";
   assert.equal(normalizeBaseURL(allowed+"/chat/completions",allowed),allowed);
+  assert.equal(normalizeBaseURL(allowed+"/responses",allowed),allowed);
   assert.throws(()=>normalizeBaseURL("http://other.internal:8317/v1",allowed));
   assert.throws(()=>normalizeBaseURL("http://example.internal:8317/other",allowed));
   assert.throws(()=>normalizeBaseURL("http://example.internal:8318/v1",allowed));

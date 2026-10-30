@@ -54,10 +54,10 @@ export class Engine {
   private script = "";
   constructor(private rootURI: string, private credentials: Credentials) {}
   async prepare(): Promise<void> {
-    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.2.3");
+    const dir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "engine-0.2.4");
     await IOUtils.makeDirectory(dir, { permissions: 0o700, ignoreExisting: true });
     this.script = PathUtils.join(dir, "worker.py");
-    for (const name of ["worker.py", "quality.py", "refresh_tasks.py", "highlight_pdf.py", "highlight_jobs.py", "highlight_install.py", "macos_keychain.py"]) {
+    for (const name of ["worker.py", "api_client.py", "quality.py", "refresh_tasks.py", "highlight_pdf.py", "highlight_jobs.py", "highlight_install.py", "macos_keychain.py"]) {
       await IOUtils.writeUTF8(PathUtils.join(dir, name), Zotero.File.getContentsFromURL(this.rootURI + "engine/" + name), { permissions: 0o600 });
     }
   }
@@ -76,7 +76,9 @@ export class Engine {
     const baseURL = normalizeBaseURL(pref("baseURL"), allowedHTTPBase);
     const model = pref("model").trim();
     if (!model) throw new Error("请先在 TransYH 设置中填写 Model。");
-    return { baseURL, model, apiKey: this.credentials.get(baseURL), allowedHTTPBase, timeout: 120,
+    const apiMode = pref("apiMode", "responses");
+    if (!["responses", "chat_completions"].includes(apiMode)) throw new Error("请选择有效的 API 接口。");
+    return { baseURL, model, apiMode, apiKey: this.credentials.get(baseURL), allowedHTTPBase, timeout: 120,
       concurrency: Number(pref("concurrency", "4")) };
   }
   async run(action: string, extra: any = {}, update = (_event: EngineEvent) => {}, run = new WorkerRun()): Promise<EngineEvent> {

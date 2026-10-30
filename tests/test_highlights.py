@@ -215,6 +215,7 @@ def test_mock_api_selects_valid_spans_and_repeated_calls_use_offset_cache(paper,
     on_marked=highlights({**config,'input':first['path']})
     assert on_marked['unchanged'] and on_marked['requests']==0
     assert Handler.metrics[config['model']]['calls']==3
+    assert Handler.metrics[config['model']]['paths']==['/v1/responses']*3
     contents=(tmp_path/'cache/highlight-cache.sqlite3').read_bytes()
     for secret in [b'fixture-only-key',highlight_base.encode(),* [g['quote'].encode() for g in GOLD]]:
         assert secret not in contents

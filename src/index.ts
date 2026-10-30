@@ -214,6 +214,7 @@ export async function initPreferences(win: any): Promise<void> {
   if (!get("base") || get("base").dataset.transyhInitialized) return;
   get("base").dataset.transyhInitialized = "true";
   get("base").value = pref("baseURL"); get("model").value = pref("model"); get("python").value = pref("pythonPath");
+  get("api-mode").value = pref("apiMode", "responses");
   get("concurrency").value = pref("concurrency", "4");
   get("auto-highlights").checked = pref("autoHighlights") === "true";
   const density = pref("highlightDensity", "smart");
@@ -227,6 +228,8 @@ export async function initPreferences(win: any): Promise<void> {
     const allowedHTTPBase = get("http").checked ? candidate : "";
     const base = normalizeBaseURL(candidate, allowedHTTPBase);
     if (!get("model").value.trim()) throw new Error("请填写 Model。");
+    const apiMode = get("api-mode").value;
+    if (!["responses", "chat_completions"].includes(apiMode)) throw new Error("请选择有效的 API 接口。");
     const concurrency = Number(get("concurrency").value);
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 10) throw new Error("并发请求数应为 1–10 的整数。");
     const density = get("highlight-density").value;
@@ -234,6 +237,7 @@ export async function initPreferences(win: any): Promise<void> {
     await credentials.set(base, get("key").value.trim());
     setPref("httpAllowedBase", allowedHTTPBase);
     setPref("baseURL", base); setPref("model", get("model").value.trim()); setPref("pythonPath", get("python").value.trim());
+    setPref("apiMode", apiMode);
     setPref("concurrency", String(concurrency));
     setPref("autoHighlights", String(get("auto-highlights").checked));
     setPref("highlightDensity", density);
@@ -273,7 +277,7 @@ async function applyPendingSetup(): Promise<void> {
     setPref("baseURL", base); setPref("model", setup.model); setPref("httpAllowedBase", allowedHTTPBase);
     setPref("pythonPath", setup.pythonPath || "");
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
-      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.3" }, { permissions: 0o600 });
+      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.4" }, { permissions: 0o600 });
     await IOUtils.remove(setupFile);
   } catch {
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),

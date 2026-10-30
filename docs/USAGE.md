@@ -2,7 +2,7 @@
 
 为 Zotero 9–10 开发的科研 PDF 全文英译中插件。使用本机 BabelDOC 排版引擎和你自己的 OpenAI 兼容 API，只生成一份中文 PDF，以独立附件保存；英文原件始终保留。
 
-**当前开发版 0.2.3**：翻译与 AI 重点识别支持 1–10 并发（默认 4），中文阅读器顶部可直接“标注重点”；任务进行时，阅读器显示阶段、百分比与耗时，并提供取消入口。已有中文 PDF 可标注蓝色核心发现、橙色关键数据和紫色有依据的方法创新，保持同标签“中文 | EN”。自动标注默认关闭；只使用用户自配 API，没有新的商业阅读或 PDF 服务。版本差异见[版本记录](../CHANGELOG.md)，历史验证范围见 [0.2.0 验收记录](../V020_TEST_RESULTS.md)。
+**当前开发版 0.2.4**：翻译、AI 标注和连接测试默认统一使用 Responses API，可接入组内 Codex 服务现有的额度与渠道自动切换。翻译与 AI 重点识别支持 1–10 并发（默认 4），中文阅读器顶部可直接“标注重点”；任务进行时，阅读器显示阶段、百分比与耗时，并提供取消入口。已有中文 PDF 可标注蓝色核心发现、橙色关键数据和紫色有依据的方法创新，保持同标签“中文 | EN”。自动标注默认关闭；只使用用户自配 API，没有新的商业阅读或 PDF 服务。版本差异见[版本记录](../CHANGELOG.md)，历史验证范围见 [0.2.0 验收记录](../V020_TEST_RESULTS.md)。
 
 已包含 0.1.4 的本地 PDF 质量检查和 **重新翻译 · TransYH**，优化阅读状态保存与双 PDF 实例释放。默认 4 个并发段落，保留实际耗时、段落进度和请求状态，可在设置中调整为 1–10；此前速度修复见 [记录](../PERFORMANCE_FIX_20261029.md)。该阶段改动及验证见 [版本记录](../CHANGELOG.md) 和 [0.1.4 测试记录](../V014_TEST_RESULTS.md)。0.1.1 已增加单个远程 HTTP 服务的明确授权、安全的 macOS 一次性配置导入，并统一连接测试和翻译使用的 API 客户端。已通过用户自配服务的 `gpt-6.1-sol` 真实三页翻译验证，见 [真实 API 测试记录](../REAL_API_TEST_20261029.md)。此版本不在代码或 XPI 中预设任何人的地址、模型或 Key。
 
@@ -12,7 +12,7 @@
 
 **需要同时安装插件 XPI 与本地 BabelDOC 引擎，仅安装 XPI 不能翻译。** 普通用户使用下面的安装文件；自行构建见[构建与测试](#构建与测试)。
 
-1. 下载 [TransYH-0.2.3.xpi](../dist/TransYH-0.2.3.xpi?raw=true) 和 [完整源码包](../dist/TransYH-0.2.3-source.zip?raw=true)，源码包内包含本地引擎安装脚本，先解压。更新时同样手动安装新 XPI，在插件管理器核对版本 **0.2.3**；当前不提供自动更新或正式 GitHub Release。
+1. 下载 [TransYH-0.2.4.xpi](../dist/TransYH-0.2.4.xpi?raw=true) 和 [完整源码包](../dist/TransYH-0.2.4-source.zip?raw=true)，源码包内包含本地引擎安装脚本，先解压。更新时同样手动安装新 XPI，在插件管理器核对版本 **0.2.4**；当前不提供自动更新或正式 GitHub Release。
 2. Zotero → 工具 → 插件 → 右上角齿轮 → **Install Add-on From File / 从文件安装插件**，选择 XPI。
 3. 安装本地引擎。macOS / Linux 需要 [uv](https://docs.astral.sh/uv/getting-started/installation/)；使用 Homebrew 可先运行 `brew install uv`。然后在项目目录运行：
 
@@ -47,12 +47,13 @@
 ```text
 https://provider.example           → https://provider.example/v1
 https://provider.example/v1/       → https://provider.example/v1
+https://provider.example/v1/responses        → https://provider.example/v1
 https://provider.example/v1/chat/completions → https://provider.example/v1
 https://gateway.example/api/openai/v1       → 保留自定义路径
 http://localhost:8000/v1                    → 支持本机服务
 ```
 
-插件在规范化后的地址追加 `/chat/completions`。远程地址默认使用 HTTPS；内网或组内服务只有在设置中明确勾选“允许此地址使用 HTTP”后才可使用 HTTP，授权仅适用于当前保存的完整服务地址。本机 localhost、127.0.0.1 和 ::1 可直接使用 HTTP。不接受地址内的密码、查询参数或锚点。模型名称直接使用服务商提供的标识；本机无鉴权接口可留空 Key。
+插件默认在规范化后的地址追加 `/responses`，以流式 Responses 协议发送独立段落和 AI 标注请求；连接测试也使用相同协议。组内服务在服务端执行现有的优先渠道、个人与共享额度以及备用切换逻辑，插件无需配置 ASXS 专用地址或 Key。仅支持旧接口的其他服务商，可在“API 接口”中选择 Chat Completions，此时追加 `/chat/completions`。遇到鉴权、额度或服务错误时不会自动退回旧接口。切换协议继续复用已有翻译和标注缓存。远程地址默认使用 HTTPS；内网或组内服务只有在设置中明确勾选“允许此地址使用 HTTP”后才可使用 HTTP，授权仅适用于当前保存的完整服务地址。本机 localhost、127.0.0.1 和 ::1 可直接使用 HTTP。不接受地址内的密码、查询参数或锚点。模型名称直接使用服务商提供的标识；本机无鉴权接口可留空 Key。
 
 Key 使用 Zotero/Gecko 登录凭据管理器加密保存于 Zotero 配置文件中，**不写入普通偏好设置**。这不是独立的 macOS Keychain 条目。与 Zotero 配置文件一起备份或迁移时，应妥善保管该配置文件。插件只通过匿名标准输入管道将 Key 交给本地 Python，命令行中不包含 Key，也不记录 API 原始错误响应。
 

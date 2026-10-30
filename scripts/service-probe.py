@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'engine'))
 import httpx
 import openai
+from api_client import api_mode, create_text
 
 logging.disable(logging.CRITICAL)
 cfg = json.loads(sys.stdin.readline())
@@ -22,9 +23,9 @@ try:
             if cfg.get('requestMode')=='layout':
                 kwargs={'max_tokens':2048,'extra_body':{}}
                 prompt='Translate the input to Simplified Chinese. Return only a JSON array with the same id and an output field. Preserve all tags and placeholders. Input: [{"id":0,"input":"Scientific papers contain mathematical equations, images, and tables."}]'
-            response=client.chat.completions.create(model=cfg['model'],messages=[{'role':'user','content':prompt}],**kwargs)
-            print(json.dumps({'ok':True,'model':cfg['model'],'translation':response.choices[0].message.content,
-                'tokens':response.usage.total_tokens if response.usage else None},ensure_ascii=False))
+            response=create_text(client,model=cfg['model'],mode=api_mode(cfg),messages=[{'role':'user','content':prompt}],**kwargs)
+            print(json.dumps({'ok':True,'model':cfg['model'],'translation':response.text,
+                'tokens':response.total_tokens},ensure_ascii=False))
         else:
             print(json.dumps({'ok':True,'models':[m.id for m in client.models.list()]},ensure_ascii=False))
 except openai.APIStatusError as exc:
