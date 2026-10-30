@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">TransYH</title>
+  <desc id="desc">Two interlocking reading corners and a focused line of text, on a navy tile.</desc>
+  <rect width="96" height="96" rx="24" fill="#17243D"/>
+  <g fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M28 54V28H58" stroke="#FFFFFF"/>
+    <path d="M68 42V68H38" stroke="#4378D8"/>
+    <path d="M42 45H54" stroke="#FFFFFF"/>
+  </g>
+</svg>
