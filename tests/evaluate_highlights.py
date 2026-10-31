@@ -19,6 +19,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'engine'),str(ROOT/'tests')]
 from highlight_fixtures import GOLD,create
 from highlight_pdf import extract
+from highlight_jobs import CACHE_TABLE
 import pymupdf
 import worker
 from mock_api import Handler
@@ -44,7 +45,7 @@ def evaluate(destination,live=False):
         if server:server.shutdown()
     with pymupdf.open(source) as pdf:paragraphs={p['paragraph_id']:p for p in extract(pdf)}
     with sqlite3.connect(run/'cache/highlight-cache.sqlite3') as db:
-        records=[row for (value,) in db.execute('SELECT offsets FROM selections') for row in json.loads(value)]
+        records=[row for (value,) in db.execute(f'SELECT offsets FROM {CACHE_TABLE}') for row in json.loads(value)]
     selected={(paragraphs[r['paragraph_id']]['text'][r['start']:r['end']],r['type']) for r in records}
     expected={(g['quote'],g['type']) for g in GOLD if g['type']}
     positives=selected&expected

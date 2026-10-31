@@ -43,12 +43,18 @@ def test_user_confirmed_spans_map_across_lines_and_columns_without_text_changes(
             if row['type']=='data':assert min(b[0] for b in mapping['boxes'])>320
 
 
-def test_user_confirmed_exclusions_do_not_become_highlights(paper):
+def test_user_confirmed_exclusions_are_semantic_mock_decisions(paper,tmp_path,highlight_base):
+    from highlight_jobs import highlights
+    from mock_api import Handler
     with pymupdf.open(paper) as pdf:paragraphs=extract(pdf)
-    candidates=[candidate(next(p for p in paragraphs if g['quote'] in p['text']),g['quote'],
-        'data' if g['id']=='prior_work' else 'innovation' if g['id']=='routine' else 'finding') for g in GOLD if not g['type']]
-    accepted,skipped=validate_candidates(paragraphs,candidates)
-    assert accepted==[] and sum(skipped.values())==3
+    config=config_for(paper,tmp_path,highlight_base)
+    capture=[];Handler.controls[config['model']]={'capture':capture}
+    result=highlights(config)
+    sent='\n'.join(p['text'] for batch in capture for p in batch['paragraphs'])
+    assert GOLD[3]['quote'] in sent and GOLD[4]['quote'] in sent
+    assert GOLD[5]['quote'] not in sent # Reference entries remain excluded.
+    assert result['diagnostics']['ai']['returnedCandidates']==3
+    assert result['highlightCount']==3
 
 
 @pytest.mark.parametrize('change',['wrong_number','paraphrase','bad_id','confidence','unknown_type','long_quote','duplicate'])
@@ -97,9 +103,12 @@ def test_pdf_annotations_and_copied_text_survive(paper,tmp_path):
     verify_preserved(paper,tmp_path/'marked.pdf')
 
 
-def test_existing_three_page_chinese_fixture_is_not_overmarked():
+def test_existing_three_page_chinese_fixture_reaches_mock_without_false_highlights(tmp_path,highlight_base):
+    from highlight_jobs import highlights
     with pymupdf.open(ROOT/'tests/fixtures/switch-chinese.pdf') as pdf:
-        assert not any(eligible(p) for p in extract(pdf))
+        assert any(eligible(p) for p in extract(pdf))
+    result=highlights(config_for(ROOT/'tests/fixtures/switch-chinese.pdf',tmp_path,highlight_base))
+    assert result['highlightCount']==0 and result['diagnostics']['ai']['sentParagraphs']>0
 
 
 @pytest.mark.parametrize('text,section',[
@@ -127,7 +136,7 @@ def test_quote_may_not_drop_the_containing_sentences_critical_limitation(paper):
     row=rows(paragraphs)[0]
     row['quote']=row['quote'].split('，但')[0]
     accepted,skipped=validate_candidates(paragraphs,[row])
-    assert not accepted and skipped=={'evidence':1}
+    assert not accepted and skipped=={'omitted_qualifier':1}
 
 
 def test_rotated_pages_are_skipped_instead_of_inventing_coordinates(paper):
@@ -137,12 +146,15 @@ def test_rotated_pages_are_skipped_instead_of_inventing_coordinates(paper):
     assert not any(p['page']==2 for p in paragraphs)
 
 
-def test_ordinary_description_in_results_is_not_a_finding(paper):
+def test_semantic_value_is_not_decided_by_local_keyword_regex(paper):
     with pymupdf.open(paper) as pdf:paragraphs=extract(pdf)
     p=next(p for p in paragraphs if p['section']=='results' and p['text'].startswith('此处说明'))
     quote='此处说明样本记录方式与数据整理流程。'
+    p['text']=quote;p['chars']=p['chars'][:len(quote)]
     accepted,skipped=validate_candidates(paragraphs,[candidate(p,quote,'finding')])
-    assert not accepted and skipped=={'evidence':1}
+    # A deliberately wrong AI label is not a local semantic accuracy test.
+    # The engine checks exact provenance; the prompt/AI must judge value.
+    assert len(accepted)==1 and not skipped
 
 
 def test_duplicate_and_overlap_are_enforced(paper):
@@ -250,13 +262,14 @@ def test_parallel_highlights_obey_limit_and_reuse_cache_after_concurrency_change
     assert Handler.metrics[config['model']]['calls']==3
 
 
-@pytest.mark.parametrize('changed',['model','baseURL','prompt'])
+@pytest.mark.parametrize('changed',['model','baseURL','prompt','extraction','selection'])
 def test_highlight_cache_is_isolated_by_model_service_and_prompt(paper,tmp_path,highlight_base,changed,monkeypatch):
     import highlight_jobs as jobs
     config=config_for(paper,tmp_path,highlight_base)
     first=jobs.highlights(config)
     other={**config,'input':first['path']}
-    if changed=='prompt':monkeypatch.setattr(jobs,'PROMPT_VERSION','explicitly-new-test-prompt')
+    if changed in ('prompt','extraction','selection'):
+        monkeypatch.setattr(jobs,{'prompt':'PROMPT_VERSION','extraction':'EXTRACTION_VERSION','selection':'SELECTION_VERSION'}[changed],'explicitly-new-test-version')
     else:other[changed]+='-different'
     fresh=jobs.highlights(other)
     assert fresh['requests']==3 and fresh['highlightCount']==3 and fresh['cachedBatches']==0

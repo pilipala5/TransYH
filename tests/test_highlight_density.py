@@ -75,7 +75,7 @@ def test_duplicate_overlap_and_evidence_guards_survive_all_modes(tmp_path):
     for mode in ['concise','smart','full']:
         selected,rejected=validate_candidates(paragraphs,[wrong,clipped,bad_importance]+candidates+candidates,density=mode)
         assert len(selected)=={'concise':1,'smart':3,'full':5}[mode]
-        assert rejected['evidence']>=1 and rejected['unmatched_or_ambiguous']==1
+        assert rejected['omitted_qualifier']>=1 and rejected['unmatched_or_ambiguous']==1
         assert rejected['duplicate_or_overlap']>=1
 
 
