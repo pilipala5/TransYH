@@ -63,6 +63,7 @@ class Handler(BaseHTTPRequestHandler):
             metrics['active']+=1;metrics['calls']+=1
             metrics['peakConcurrent']=max(metrics['peakConcurrent'],metrics['active'])
             call_number=metrics['calls']
+            metrics.setdefault('paths',[]).append(self.path)
             control=dict(Handler.controls.get(model,{}))
         try:
             if control.get('delay'):time.sleep(control['delay'])
@@ -73,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
             with Handler.lock:metrics['active']-=1
 
     def handle_request(self,data,model):
-        if model in ('error-401','error-403','error-404','error-429','error-500'):
+        if model in ('error-401','error-403','error-404','error-429','error-500','error-503'):
             self.reply(int(model[-3:]),{'error':{'message':'provider-error-body-must-not-leak'}});return
         if model=='slow':time.sleep(2)
         if model.startswith('fixture-e2e-'):time.sleep(2)
@@ -81,20 +82,33 @@ class Handler(BaseHTTPRequestHandler):
         if model=='empty':self.reply(200,{'choices':[{'message':{'content':''}}]});return
         if model=='redirect':
             self.send_response(307);self.send_header('Location','http://127.0.0.1:1/leak');self.end_headers();return
-        if not self.path.endswith('/chat/completions'):self.reply(404,{});return
-        text=data['messages'][-1]['content']
-        if any('严谨的学术论文精读助手' in m.get('content','') for m in data['messages']):
+        if self.path.endswith('/responses'):
+            messages=data['input']
+        elif self.path.endswith('/chat/completions'):
+            messages=data['messages']
+        else:self.reply(404,{});return
+        text=messages[-1]['content']
+        if any('严谨的学术论文精读助手' in m.get('content','') for m in messages):
             # Deliberately scripted candidates, not an AI accuracy evaluation.
-            from highlight_fixtures import GOLD,DENSITY_CASES
+            from highlight_fixtures import GOLD,DENSITY_CASES,RECALL_CASES
             payload=json.loads(text)
             highlights=[]
-            reference=DENSITY_CASES if model.startswith('fixture-density-') else GOLD
+            control=Handler.controls.get(model,{})
+            if control.get('requireContext'):
+                context=payload.get('paper_context',{})
+                if not context.get('title') or not context.get('abstract') or not context.get('sections'):
+                    self.reply(400,{'error':{'message':'missing-paper-context'}});return
+            if 'capture' in control:control['capture'].append(payload)
+            reference=DENSITY_CASES if model.startswith('fixture-density-') else RECALL_CASES if model.startswith('fixture-recall-') else GOLD
             for paragraph in payload['paragraphs']:
                 for gold in reference:
-                    if gold['quote'] in paragraph['text']:
+                    # These are scripted semantic decisions, including negative
+                    # examples. Local regexes no longer make these judgments.
+                    if gold['type'] and gold['quote'] in paragraph['text']:
                         highlights.append({'paragraph_id':paragraph['paragraph_id'],'quote':gold['quote'],
-                            'type':gold['type'] or ('innovation' if gold['id']=='routine' else 'finding'),
+                            'type':gold['type'],
                             'confidence':.99,'importance':gold.get('importance','core')})
+            if 'candidates' in control:highlights=control['candidates']
             output=json.dumps({'highlights':highlights},ensure_ascii=False)
             if model.startswith('fixture-highlight-invalid'):output='not valid JSON'
         elif '## Here is the input:' in text:
@@ -103,9 +117,28 @@ class Handler(BaseHTTPRequestHandler):
         elif 'Input:\n\n' in text:output=fixture_translation(text.split('Input:\n\n')[-1])
         elif 'Now translate the following text:' in text:output=fixture_translation(text.split('Now translate the following text:')[-1].strip())
         else:output='OK'
+        if self.path.endswith('/responses'):
+            response={'id':'resp_fixture','object':'response','created_at':1,'model':model,'status':'completed',
+                'error':None,'incomplete_details':None,
+                'output':[{'id':'msg_fixture','type':'message','role':'assistant','status':'completed',
+                    'content':[{'type':'output_text','text':output,'annotations':[]}]}],
+                'usage':{'input_tokens':10,'output_tokens':10,'total_tokens':20,
+                    'input_tokens_details':{'cached_tokens':4},'output_tokens_details':{'reasoning_tokens':0}}}
+            self.reply_events([
+                {'type':'response.output_text.delta','delta':output},
+                {'type':'response.completed','response':response}])
+            return
         self.reply(200,{'id':'mock-fixture','object':'chat.completion','created':1,'model':model,
             'choices':[{'index':0,'message':{'role':'assistant','content':output},'finish_reason':'stop'}],
             'usage':{'prompt_tokens':10,'completion_tokens':10,'total_tokens':20}})
+
+    def reply_events(self,events):
+        payload=''.join('event: '+event['type']+'\ndata: '+json.dumps(event,ensure_ascii=False)+'\n\n' for event in events)
+        encoded=(payload+'data: [DONE]\n\n').encode()
+        self.send_response(200);self.send_header('Content-Type','text/event-stream')
+        self.send_header('Content-Length',str(len(encoded)));self.end_headers()
+        try:self.wfile.write(encoded)
+        except (BrokenPipeError,ConnectionResetError):pass
 
 
 if __name__=='__main__':

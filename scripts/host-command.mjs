@@ -1,9 +1,9 @@
 import { readFile, writeFile, rename, access } from 'node:fs/promises';
 import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
-export async function host(code, timeout = 60000) {
+export async function host(code, timeout = 60000, runtime = path.join(root, '.test-runtime')) {
   const id = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  const dir = path.join(root, '.test-runtime');
+  const dir = runtime;
   await writeFile(path.join(dir, 'command.tmp'), JSON.stringify({ id, code }));
   await rename(path.join(dir, 'command.tmp'), path.join(dir, 'command.json'));
   const start = Date.now();

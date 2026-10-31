@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "TransYH",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "本地全文翻译，在同一个 Zotero 阅读标签中切换中文与英文 PDF。",
   "author": "TransYH contributors",
   "applications": {

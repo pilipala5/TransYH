@@ -4,7 +4,7 @@ export type ViewState = {
   scrollMode?: number; spreadMode?: number;
 };
 
-/** Accept a service root, version root, or full Chat Completions URL. */
+/** Accept a service root, version root, or full supported endpoint URL. */
 export function canonicalBaseURL(value: string): string {
   const input = value.trim().replace(/\/+$/, "");
   let url: URL;
@@ -12,7 +12,7 @@ export function canonicalBaseURL(value: string): string {
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
     throw new Error("API 地址只支持 http(s)，且不能包含账号、密码、查询参数或锚点。");
   }
-  url.pathname = url.pathname.replace(/\/(?:chat\/completions)\/?$/, "").replace(/\/+$/, "");
+  url.pathname = url.pathname.replace(/\/(?:chat\/completions|responses)\/?$/, "").replace(/\/+$/, "");
   if (!url.pathname || url.pathname === "/") url.pathname = "/v1";
   return url.toString().replace(/\/+$/, "");
 }

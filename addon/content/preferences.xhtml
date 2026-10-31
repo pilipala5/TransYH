@@ -6,6 +6,10 @@
       <html:label for="transyh-base">API Base URL</html:label><html:input id="transyh-base" type="url" placeholder="https://your-provider.example/v1"/>
       <html:label for="transyh-key">API Key</html:label><html:input id="transyh-key" type="password" autocomplete="off"/>
       <html:label for="transyh-model">Model</html:label><html:input id="transyh-model" type="text" placeholder="填写服务商提供的模型名称"/>
+      <html:label for="transyh-api-mode">API 接口</html:label><html:select id="transyh-api-mode">
+        <html:option value="responses" selected="selected">Responses（推荐，默认）</html:option>
+        <html:option value="chat_completions">Chat Completions（其他服务商兼容）</html:option>
+      </html:select>
       <html:label for="transyh-concurrency">并发请求数</html:label><html:input id="transyh-concurrency" type="number" min="1" max="10" value="4"/>
       <html:label for="transyh-python">Python 路径（可选）</html:label><html:input id="transyh-python" type="text" placeholder="留空以自动检测 TransYH 本地引擎"/>
     </html:div>
