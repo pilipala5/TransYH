@@ -53,6 +53,10 @@ QUALIFIERS = re.compile(
     r"置信区间|±|相关而非因果|不构成因果|不意味着|不适用|不一定|"
     r"在[^。！？；;]{1,40}(?:条件下|范围内|前提下)|"
     r"\b(?:but|however|only|may|might|unless|except|not necessarily|confidence interval)\b", re.I)
+FOLLOWING_CLAIM = re.compile(
+    r"^\s*(?:(?:但|然而|不过)[，,]?\s*)?(?:该|这(?:一)?|上述|本)"
+    r"(?:结果|结论|关系|发现|方法|模型|性能|效应|关联|表现|框架)|"
+    r"^\s*(?:但|然而|不过)[，,]?\s*(?:仅|只|需|仍|不|尚|可能)")
 
 
 class HighlightError(Exception):
@@ -314,6 +318,12 @@ def local_evidence(paragraph, quote, category):
         omitted = text[left:start] + text[start+len(quote):right]
         if QUALIFIERS.search(omitted):
             return False
+        if end < len(text) and quote.endswith(tuple('。！？!?')):
+            following = re.split(r'[。！？!?]', text[end:], maxsplit=1)[0]
+            # A directly referring next-sentence caveat still qualifies this
+            # claim. An unrelated next sentence must not veto a complete quote.
+            if FOLLOWING_CLAIM.search(HEADING_CONTROLS.sub(' ', following)) and QUALIFIERS.search(following):
+                return False
     # Authorship, novelty and academic significance require semantic judgment.
     # Do not veto an exact, qualified AI selection by vocabulary or section.
     return True

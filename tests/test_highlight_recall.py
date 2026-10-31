@@ -173,6 +173,20 @@ def test_a_complete_sentence_does_not_inherit_next_sentences_unrelated_caveat(tm
     assert len(selected) == 1 and not rejected
 
 
+def test_a_directly_referring_next_sentence_caveat_cannot_be_dropped(tmp_path):
+    from reportlab.pdfgen import canvas
+    source = tmp_path / 'qualified.pdf'
+    claim = '各个城市的季节结构在独立观测中保持一致。'
+    text = claim + '但该结果仅适用于本实验的密集采样条件。'
+    c = canvas.Canvas(str(source)); c.setFont('STSong-Light', 11)
+    c.drawString(46, 740, text); c.save()
+    with pymupdf.open(source) as doc: ps = extract(doc)
+    p = next(p for p in ps if text in p['text'])
+    assert validate_candidates(ps, [candidate(p, claim, 'finding')])[1] == {'omitted_qualifier': 1}
+    selected, rejected = validate_candidates(ps, [candidate(p, text, 'finding')])
+    assert len(selected) == 1 and not rejected
+
+
 def test_translated_heading_controls_and_small_table_labels_do_not_reset_sections(tmp_path):
     from reportlab.pdfgen import canvas
     source = tmp_path / 'table-headings.pdf'
