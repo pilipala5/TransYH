@@ -16,6 +16,19 @@ DENSITY_CASES = [
     {'quote':'消融实验发现，辅助正则项降低了重复实验的方差，但尚未验证其他数据域。','type':'finding','importance':'supporting'},
     {'quote':'在补充实验中，平均推理延迟从 24 毫秒降至 21 毫秒，硬件配置保持一致。','type':'data','importance':'supporting'},
 ]
+# Authored regression inputs, not human labels for a real paper or AI scores.
+RECALL_CASES = [
+    {'quote':'研究纳入 2,481 名受试者，中位随访为 36 个月；统计范围限于完成随访者。',
+     'type':'data','importance':'important'},
+    {'quote':'两个互补分支分别编码局部变化与全局依赖，门控交互使二者能够随输入自适应协调。',
+     'type':'innovation','importance':'core'},
+    {'quote':'跨城市迁移后，季节性结构仍然稳定；这一性质在稀疏观测条件下持续存在。',
+     'type':'finding','importance':'important'},
+    {'quote':'当观测间隔超过七天时，细粒度结构不再可辨，当前适用范围限于较密集的采样。',
+     'type':'finding','importance':'supporting'},
+    {'quote':'摘要中的主要贡献是把异质变化分解为互补成分，并用统一机制解释跨域表现。',
+     'type':'finding','importance':'core'},
+]
 pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
 
 
@@ -67,5 +80,27 @@ def create_density(path, counts=(0,1,3,5)):
                 c.drawString(46,y,line);y-=18
             y-=26
         c.showPage()
+    c.save()
+    return Path(path)
+
+
+def create_recall(path):
+    c=canvas.Canvas(str(path),pagesize=(612,792),invariant=1)
+    c.setTitle('Contextual academic reading - synthetic recall fixture')
+    c.setFont('STSong-Light',20);c.drawString(46,744,'异质变化的互补表示研究')
+    c.setFont('STSong-Light',11)
+    for line,y in zip(textwrap.wrap('摘要：'+RECALL_CASES[4]['quote'],width=38),range(695,620,-18)):
+        c.drawString(46,y,line)
+    for title,index,y in [('第二章 数据来源与研究设计',0,580),('三、双分支交互机制',1,410),
+                          ('4.2 跨城市迁移与边界检验',2,240)]:
+        c.setFont('STSong-Light',16);c.drawString(46,y,title)
+        c.setFont('STSong-Light',11)
+        for line,yy in zip(textwrap.wrap(RECALL_CASES[index]['quote'],width=38),range(y-40,y-120,-18)):
+            c.drawString(46,yy,line)
+    c.showPage()
+    c.setFont('STSong-Light',16);c.drawString(46,744,'附录 A 补充验证')
+    c.setFont('STSong-Light',11)
+    for line,y in zip(textwrap.wrap(RECALL_CASES[3]['quote'],width=38),range(695,620,-18)):
+        c.drawString(46,y,line)
     c.save()
     return Path(path)

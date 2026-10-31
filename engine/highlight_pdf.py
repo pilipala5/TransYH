@@ -20,8 +20,11 @@ MARKER = "TransYHHighlights"
 PREFIX = b"% TransYHHighlight-v1 "
 IMPORTANCE = {"core": 2, "important": 1, "supporting": 0}
 DENSITIES = {"concise": {"core"}, "smart": {"core", "important"}, "full": set(IMPORTANCE)}
+EXTRACTION_VERSION = "contextual-sections-v1"
+MAX_PARAGRAPH = 5000
+MAX_QUOTE = 600
 SECTIONS = {
-    "background": r"引言|绪论|研究背景|背景|相关工作|文献综述|introduction|background|related work|literature review",
+    "background": r"引言|绪论|导论|研究概述|研究背景|背景|相关工作|文献综述|introduction|background|related work|literature review",
     "methods": r"方法|研究方法|材料与方法|方法创新|模型方法|模型设计|研究设计|实验设置|实验配置|实验设计|实现细节|method|methods|methodology|materials and methods|proposed method|experimental setup|implementation details",
     "results": r"结果|实验|实验评估|实验结果|实验与结果|结果分析|主要结果|消融实验|消融分析|对比实验|定量结果|定量分析|性能比较|实验结果与分析|results|experimental results|experiments|ablation study|evaluation",
     "discussion": r"讨论|分析与讨论|结果与讨论|实验结果与讨论|results and discussion|discussion",
@@ -29,6 +32,31 @@ SECTIONS = {
     "abstract": r"摘要|abstract",
     "references": r"参考文献|引用文献|references|bibliography",
 }
+# Roles are context hints, never a whitelist of where research can occur.
+SECTION_HINTS = {
+    "discussion": r"讨论|局限|局限性|展望|discussion|limitations?",
+    "conclusion": r"结论|总结|conclusions?",
+    "background": r"背景|相关工作|文献综述|研究概述|related work|background",
+    "methods": r"方法|框架|架构|机制|模型|研究设计|实验设置|数据集|数据来源|数据收集|数据划分|嵌入表示|多标签求解|样本|预处理|研究区|评估协议|materials?|methods?|framework|architecture|datasets?|experimental setup",
+    "results": r"结果|实验|评估|消融|性能|稳健性|敏感性|迁移|检验|results?|experiments?|evaluation|ablation|robustness",
+}
+HEADING_PREFIX = re.compile(
+    r"^(?:第\s*[一二三四五六七八九十百零〇两\d]+\s*[章节篇部]\s*|"
+    r"[一二三四五六七八九十百]+[、.．]\s*|[（(][一二三四五六七八九十\d]+[）)]\s*|"
+    r"\d+(?:[.．]\d+)*(?:[.．、]\s*|\s+)(?=[A-Za-z\u3400-\u9fff])|"
+    r"(?-i:[IVX]+)[.．]?\s+(?=[A-Za-z\u3400-\u9fff])|"
+    r"[A-Z](?:\.\d+)+(?:\s+|[.、]\s*)|[A-Z][.、]\s+)", re.I)
+INLINE_ABSTRACT = re.compile(r"^\s*(?:摘\s*要|abstract)\s*[:：.。]\s*", re.I)
+HEADING_CONTROLS = re.compile(r"[\x00-\x1f\x7f]")
+QUALIFIERS = re.compile(
+    r"但|然而|不过|仅|只在|只限|可能|不能|不代表|尚需|尚未|未能|不声称|"
+    r"置信区间|±|相关而非因果|不构成因果|不意味着|不适用|不一定|"
+    r"在[^。！？；;]{1,40}(?:条件下|范围内|前提下)|"
+    r"\b(?:but|however|only|may|might|unless|except|not necessarily|confidence interval)\b", re.I)
+FOLLOWING_CLAIM = re.compile(
+    r"^\s*(?:(?:但|然而|不过)[，,]?\s*)?(?:该|这(?:一)?|上述|本)"
+    r"(?:结果|结论|关系|发现|方法|模型|性能|效应|关联|表现|框架)|"
+    r"^\s*(?:但|然而|不过)[，,]?\s*(?:仅|只|需|仍|不|尚|可能)")
 
 
 class HighlightError(Exception):
@@ -68,31 +96,78 @@ def metadata(doc):
         raise HighlightError("已有 AI 标注层记录无法识别，未修改 PDF。") from None
 
 
-def heading(text):
-    candidate = re.sub(r"^\s*\d+(?:\.\d+)*[.、]?\s*", "", text).strip()
-    candidate = re.split(r'[:：]',candidate,maxsplit=1)[0].strip()
-    if len(candidate) > 45:
+def heading(text, title_like=False):
+    # Some translated PDFs encode layout separators as U+0003. Normalize only
+    # the heading classifier; the quotable text and its character map stay exact.
+    candidate = HEADING_CONTROLS.sub(" ", text).strip()
+    # Inline abstracts contain evidence, not just a section label.
+    inline = INLINE_ABSTRACT.match(candidate)
+    if inline and candidate[inline.end():].strip():
         return None
+    candidate = re.sub(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])", "", candidate)
+    numbered = bool(HEADING_PREFIX.match(candidate))
+    candidate = HEADING_PREFIX.sub("", candidate, count=1).strip().rstrip(":：.。")
+    if not candidate or len(candidate) > 90 or re.search(r"[。！？；;!?，,]", candidate):
+        return None
+    label = re.split(r'[:：]', candidate, maxsplit=1)[0].strip()
     for section, pattern in SECTIONS.items():
-        if re.fullmatch(pattern, candidate, re.I):
+        if re.fullmatch(pattern, label, re.I):
             return section
+    if re.search(r"[。！？!?]", text):
+        return None
+    if re.match(r"^(?:附录|附章|appendix|appendices)(?:\s|[A-Z一二三\d]|$)", candidate, re.I):
+        return "appendix"
+    # A custom numbered heading must end the previous section too, notably
+    # when an appendix follows References. Its unknown role remains eligible.
+    if numbered or title_like:
+        for section, pattern in SECTION_HINTS.items():
+            if re.search(pattern, candidate, re.I):
+                return section
+    if numbered or title_like:
+        return "other"
     return None
 
 
-def extract(doc):
+def extract(doc, diagnostics=None):
     """Map chars in geometric reading runs; never join columns or paragraph gaps."""
     paragraphs = []
     section = "unknown"
+    section_title = ""
+    if diagnostics is not None:
+        diagnostics.update(pages=len(doc), rotatedPages=0, unmappedLines=0)
+    # Table-heavy pages can have a much smaller dominant font than the prose.
+    # Use the document's Chinese prose size so table cells cannot become fake
+    # chapters and reset the section for all subsequent pages.
+    sizes = Counter()
+    for page in doc:
+        raw = page.get_text("rawdict", flags=pymupdf.TEXTFLAGS_TEXT)
+        for block in raw["blocks"]:
+            if block["type"] != 0: continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    sizes[round(span["size"], 1)] += sum(bool(re.match(r"[\u3400-\u9fff]", c["c"])) for c in span["chars"])
+    body_size = sizes.most_common(1)[0][0] if sizes and max(sizes.values()) else 12
     for page_index, page in enumerate(doc):
         if page.rotation:
+            if diagnostics is not None: diagnostics["rotatedPages"] += 1
             continue # No inferred rotation mapping; other pages can still be checked.
         raw = page.get_text("rawdict", flags=pymupdf.TEXTFLAGS_TEXT)
+        def detect(chars):
+            # Keyword fragments in a wrapped body line are not headings.
+            large = max((c["size"] for c in chars), default=0) >= body_size * 1.18
+            text = ''.join(c['c'] for c in chars)
+            role = heading(text, title_like=large)
+            numbered = HEADING_PREFIX.match(HEADING_CONTROLS.sub(" ", text).strip())
+            if role and not (numbered or large or role in {"abstract", "references"}):
+                return None
+            return role
         for block_index, block in enumerate(raw["blocks"]):
             if block["type"] != 0:
                 continue
             groups = []
             for line_index, line in enumerate(block["lines"]):
                 if abs(line["dir"][0] - 1) > 0.01 or abs(line["dir"][1]) > 0.01:
+                    if diagnostics is not None: diagnostics["unmappedLines"] += 1
                     continue  # Rotated/vertical text is outside the mapper.
                 parts, part = [], []
                 for span in line["spans"]:
@@ -112,7 +187,7 @@ def extract(doc):
                         if abs(g["last"].x0 - box.x0) <= size * 2
                         and -size * .25 <= box.y0 - g["last"].y1 <= size * 1.2
                         and .8 <= size / g["size"] <= 1.25), None)
-                    if heading(''.join(c['c'] for c in part)) or (previous and heading(''.join(c['c'] for line in previous['lines'] for c in line))):
+                    if detect(part) or (previous and detect([c for line in previous['lines'] for c in line])):
                         previous=None
                     if previous is None:
                         groups.append({"lines": [part], "last": box, "size": size})
@@ -129,13 +204,21 @@ def extract(doc):
                 if not chars:
                     continue
                 text = "".join(c["c"] for c in chars)
-                detected = heading(text)
-                if detected: section = detected
+                inline = INLINE_ABSTRACT.match(text)
+                if inline and text[inline.end():].strip():
+                    section, section_title = "abstract", text[:inline.end()].strip()
+                    chars = chars[inline.end():]
+                    text = text[inline.end():]
+                    detected = None
+                else:
+                    inline = None
+                    detected = detect(chars)
+                    if detected: section, section_title = detected, text
                 previous = paragraphs[-1] if paragraphs else None
                 # Some producers place every wrapped line in its own PDF block.
                 # Join only consecutive aligned, same-font continuation lines,
                 # without sentence endings or a paragraph-sized vertical gap.
-                if previous and not detected and not previous["heading"] and previous["page"] == page_index + 1:
+                if previous and not detected and not inline and not previous["heading"] and previous["page"] == page_index + 1:
                     last = next(c for c in reversed(previous["chars"]) if c["box"])
                     first = next(c for c in chars if c["box"])
                     left = next(c for c in previous["chars"] if c["box"])
@@ -151,8 +234,23 @@ def extract(doc):
                         continue
                 paragraphs.append({"paragraph_id": f"p{page_index + 1}b{block_index}g{group_index}",
                     "page": page_index + 1, "section": section, "text": text, "heading": bool(detected),
-                    "chars": chars})
-    return paragraphs
+                    "section_title": section_title, "inline_heading": bool(inline), "chars": chars})
+    # Long, valid text must not disappear at the request-size boundary. Split
+    # by character offsets without changing a glyph, box or reading order.
+    chunks = []
+    for paragraph in paragraphs:
+        start = 0
+        while len(paragraph["text"]) - start > MAX_PARAGRAPH:
+            end = start + MAX_PARAGRAPH
+            boundary = max(paragraph["text"].rfind(mark, start + MAX_PARAGRAPH // 2, end)
+                           for mark in "。！？；;\n ")
+            if boundary >= 0: end = boundary + 1
+            chunks.append({**paragraph, "paragraph_id": paragraph["paragraph_id"] + f"s{start}",
+                           "text": paragraph["text"][start:end], "chars": paragraph["chars"][start:end]})
+            start = end
+        chunks.append({**paragraph, "paragraph_id": paragraph["paragraph_id"] + (f"s{start}" if start else ""),
+                       "text": paragraph["text"][start:], "chars": paragraph["chars"][start:]})
+    return chunks
 
 
 def text_identity(paragraphs):
@@ -160,15 +258,50 @@ def text_identity(paragraphs):
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
+def exclusion_reason(paragraph):
+    if paragraph["heading"]: return "heading"
+    if paragraph["section"] == "references": return "references"
+    if len(paragraph["text"]) != len(paragraph["chars"]): return "unmapped_text"
+    if re.search(r"\ufffd|\(cid:\d+\)", paragraph["text"]): return "invalid_encoding"
+    if len(re.findall(r"[\u3400-\u9fff]", paragraph["text"])) < 8: return "insufficient_chinese"
+    if len(paragraph["text"]) > MAX_PARAGRAPH: return "paragraph_too_long"
+    return None
+
+
 def eligible(paragraph):
-    section = paragraph["section"]
-    explicit_report = bool(re.search(r'结果表明|实验表明|我们发现|所提方法|本文提出|本研究提出|我们提出',paragraph['text']))
-    return (not paragraph["heading"] and (section in {"methods", "results", "discussion", "conclusion", "abstract"}
-                or (section == 'unknown' and explicit_report))
-            and len(paragraph['text']) == len(paragraph['chars'])
-            and len(re.findall(r"[\u3400-\u9fff]", paragraph["text"])) >= 8
-            and len(paragraph["text"]) <= 5000
-            and not re.search(r"\ufffd|\(cid:\d+\)", paragraph["text"]))
+    return exclusion_reason(paragraph) is None
+
+
+def paragraph_diagnostics(paragraphs):
+    excluded, sections = Counter(), {}
+    for paragraph in paragraphs:
+        reason = exclusion_reason(paragraph)
+        counts = sections.setdefault(paragraph["section"], {"extracted": 0, "eligible": 0})
+        counts["extracted"] += 1
+        if reason: excluded[reason] += 1
+        else: counts["eligible"] += 1
+    return {"extracted": len(paragraphs), "eligible": len(paragraphs) - sum(excluded.values()),
+            "excluded": dict(excluded), "sections": sections}
+
+
+def paper_context(doc, paragraphs):
+    """Bounded background for every batch; only current-batch text is quotable."""
+    first = [p for p in paragraphs if p["page"] == 1 and p["section"] != "abstract"
+             and 6 <= len(p["text"]) <= 400]
+    title = max(first, key=lambda p: max(c["size"] for c in p["chars"]), default=None)
+    title_paragraph = title
+    title = HEADING_CONTROLS.sub(" ", title["text"] if title else (doc.metadata or {}).get("title", "")).strip()
+    abstract = "\n".join(p["text"] for p in paragraphs if p["section"] == "abstract" and not p["heading"])
+    outline, seen = [], set()
+    for p in paragraphs:
+        if not (p["heading"] or p.get("inline_heading")): continue
+        if p is title_paragraph: continue
+        label = HEADING_CONTROLS.sub(" ", p.get("section_title", p["text"])).strip()
+        if (label, p["section"]) in seen: continue
+        seen.add((label, p["section"]))
+        outline.append({"page": p["page"], "section": p["section"], "title": label[:150]})
+    return {"title": title[:400], "abstract": abstract[:6000], "sections": outline[:120],
+            "truncated": {"abstract": len(abstract) > 6000, "sections": len(outline) > 120}}
 
 
 def local_evidence(paragraph, quote, category):
@@ -178,22 +311,22 @@ def local_evidence(paragraph, quote, category):
     # the claim. This is deliberately conservative, not a semantic proof.
     start = text.find(quote)
     if start >= 0:
-        left = max(text.rfind(mark,0,start) for mark in '。！？') + 1
-        endings = [text.find(mark,start+len(quote)) for mark in '。！？']
-        right = min((i for i in endings if i>=0),default=len(text))
+        left = max(text.rfind(mark,0,start) for mark in '。！？!?') + 1
+        end = start + len(quote)
+        endings = [text.find(mark,end) for mark in '。！？!?']
+        right = end if quote.endswith(tuple('。！？!?')) else min((i for i in endings if i>=0),default=len(text))
         omitted = text[left:start] + text[start+len(quote):right]
-        if re.search(r'但|仅|可能|不能|不代表|尚需|未能|不声称|置信区间|相关而非因果',omitted):
+        if QUALIFIERS.search(omitted):
             return False
-    if category == "innovation":
-        return bool(re.search(r"本文提出|本研究提出|我们提出|首次|创新|不同于|提出了|设计了", text))
-    if paragraph["section"] == "methods":
-        return False  # Routine experimental settings are not reported results.
-    if re.search(r"既有研究|已有研究|前人研究|文献报道|不是本文|并非本文", quote):
-        return False
-    if category == "data":
-        return bool(re.search(r"\d", quote) and re.search(
-            r"MAE|RMSE|MSE|F1|AUC|准确率|精度|误差|召回率|耗时|延迟|吞吐|提高|降低|降至|增长|相比|相较|基线|对照|百分点|毫秒|秒|千米|公里|厘米|mm|mg|km", quote, re.I))
-    return bool(re.search(r"结果|发现|表明|观察到|所提方法|证实|证明了|降低|下降|提升|优于|相关性|呈.+相关", quote))
+        if end < len(text) and quote.endswith(tuple('。！？!?')):
+            following = re.split(r'[。！？!?]', text[end:], maxsplit=1)[0]
+            # A directly referring next-sentence caveat still qualifies this
+            # claim. An unrelated next sentence must not veto a complete quote.
+            if FOLLOWING_CLAIM.search(HEADING_CONTROLS.sub(' ', following)) and QUALIFIERS.search(following):
+                return False
+    # Authorship, novelty and academic significance require semantic judgment.
+    # Do not veto an exact, qualified AI selection by vocabulary or section.
+    return True
 
 
 def locate(paragraph, quote):
@@ -238,19 +371,23 @@ def validate_candidates(paragraphs, candidates, density="smart"):
             skipped["schema"] += 1; continue
         paragraph = by_id.get(row["paragraph_id"]) if isinstance(row["paragraph_id"], str) else None
         quote, category, confidence = row["quote"], row["type"], row["confidence"]
-        if not paragraph or not eligible(paragraph): skipped["section"] += 1; continue
-        if (not isinstance(category, str) or category not in COLORS or not isinstance(quote, str)
-                or not 12 <= len(quote) <= 180 or len(re.findall(r"[。！？]", quote)) > 2
-                or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
-                or not math.isfinite(confidence) or not .8 <= confidence <= 1):
-            skipped["policy"] += 1; continue
-        if not local_evidence(paragraph, quote, category): skipped["evidence"] += 1; continue
+        if not paragraph: skipped["unknown_paragraph"] += 1; continue
+        reason = exclusion_reason(paragraph)
+        if reason: skipped["ineligible_" + reason] += 1; continue
+        if not isinstance(category, str) or category not in COLORS:
+            skipped["category"] += 1; continue
+        if not isinstance(quote, str) or not 12 <= len(quote) <= MAX_QUOTE:
+            skipped["quote_length"] += 1; continue
+        if (isinstance(confidence, bool) or not isinstance(confidence, (int, float))
+                or not math.isfinite(confidence) or not 0 <= confidence <= 1):
+            skipped["confidence"] += 1; continue
+        if not local_evidence(paragraph, quote, category): skipped["omitted_qualifier"] += 1; continue
         mapped = locate(paragraph, quote)
         if not mapped: skipped["unmatched_or_ambiguous"] += 1; continue
         importance = row.get("importance", "important")
         if not isinstance(importance, str) or importance not in IMPORTANCE:
             skipped["importance"] += 1; continue
-        if importance not in allowed: skipped["importance"] += 1; continue
+        if importance not in allowed: skipped["density"] += 1; continue
         page = paragraph["page"]
         rects = [pymupdf.Rect(b) for b in mapped["boxes"]]
         if any((rect & previous).get_area() > 0 for rect in rects for previous in occupied.get(page, [])):

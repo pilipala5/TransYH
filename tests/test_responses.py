@@ -109,3 +109,44 @@ def test_invalid_api_mode_is_rejected_before_any_request(service):
     with pytest.raises(worker.UserError) as caught:
         worker.test_connection({'baseURL': base, 'model': 'fixture', 'apiMode': 'typo'})
     assert caught.value.code == 'CONFIG' and calls == []
+
+
+@pytest.mark.parametrize('mode,suffix', [('responses', '/responses'),
+                                      ('chat_completions', '/chat/completions')])
+def test_contextual_highlights_use_shared_adapter_in_both_protocols(service, tmp_path, mode, suffix):
+    import json
+    from highlight_fixtures import create_recall, RECALL_CASES
+    from highlight_jobs import highlights
+    from highlight_pdf import verify_preserved
+
+    base, calls = service
+    source = create_recall(tmp_path / 'recall.pdf')
+    original = source.read_bytes()
+    model = 'fixture-recall-protocol-' + mode
+    Handler.controls[model] = {'requireContext': True}
+    config = {'baseURL': base, 'model': model, 'apiKey': 'fixture-only-key', 'apiMode': mode,
+              'input': str(source), 'outputDir': str(tmp_path / 'output'),
+              'cacheDir': str(tmp_path / 'cache'), 'concurrency': 10}
+    try:
+        result = highlights(config)
+        assert result['highlightCount'] == 4 and result['requests'] == 2
+        assert source.read_bytes() == original
+        verify_preserved(source, result['path'])
+        assert len(calls) == 2 and all(path == '/v1' + suffix for path, _ in calls)
+        sent = []
+        for _, body in calls:
+            messages = body['input' if mode == 'responses' else 'messages']
+            payload = json.loads(messages[-1]['content'])
+            assert payload['paper_context']['title'] == '异质变化的互补表示研究'
+            assert payload['paper_context']['abstract'] and payload['paper_context']['sections']
+            assert all('section_title' in p for p in payload['paragraphs'])
+            sent.extend(p['text'] for p in payload['paragraphs'])
+            if mode == 'responses':
+                assert body['stream'] is True and body['store'] is False
+        assert all(any(case['quote'] in text for text in sent) for case in RECALL_CASES)
+        assert result['diagnostics']['ai']['returnedCandidates'] == 5
+        assert result['diagnostics']['selection']['rejected'] == {'density': 1}
+        full = highlights({**config, 'input': result['path'], 'highlightDensity': 'full'})
+        assert full['requests'] == 0 and full['highlightCount'] == 5 and len(calls) == 2
+    finally:
+        Handler.controls.pop(model, None)

@@ -5,6 +5,7 @@ export type EngineEvent = { type: string; message?: string; progress?: number; p
   language?: "zh" | "unknown"; pages?: number;
   refreshToken?: string; taskVersion?: string; resumed?: boolean;
   unchanged?: boolean; installed?: boolean; highlightCount?: number; cachedBatches?: number;
+  skippedCandidates?: number; diagnostics?: Record<string, unknown>;
   sourceFingerprint?: string; backupPath?: string; recoveredTransactions?: number;
   quality?: { status: "pass" | "suspect" | "structural_error"; issues: { code: string; page?: number; count: number }[] }; qualityReport?: string;
   requests?: number; completedRequests?: number; activeRequests?: number; cachedParagraphs?: number };

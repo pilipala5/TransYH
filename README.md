@@ -15,7 +15,7 @@
   <a href="docs/USAGE.md">Documentation</a>
 </p>
 
-<p align="center"><sub>当前开发版 v0.2.4 · 已验证 macOS Apple Silicon / Zotero 10.0.6</sub></p>
+<p align="center"><sub>当前开发版 v0.2.4 · 已验证 macOS Apple Silicon / Zotero 10.0.6、10.0.7</sub></p>
 
 <sub>真实界面截取自 v0.2.0 三页演示：Guo et al. (2025), PLOS ONE；仅原第 7、9、13 页，不代表整篇准确率验证。表中数值属于原论文的生态位模型。<a href="docs/demo/README.md">来源、CC BY 4.0 许可与核对记录 →</a></sub>
 
@@ -41,6 +41,8 @@ AI 直接在中文 PDF 中标记**核心发现、关键数据和有依据的方�
 
 **v0.2.4：** 翻译、AI 标注和连接测试默认使用 Responses API，组内服务按现有渠道顺序与额度自动切换。阅读器内查看阶段、进度与耗时，随时取消；中文阅读器顶部可直接“标注重点”。翻译与重点识别支持 **1–10 并发**，默认 4，实际速度取决于模型和服务商限流。[查看版本记录 →](CHANGELOG.md)
 
+重点识别结合论文标题、摘要与章节背景，支持中文和自定义章节；精简、智能、充分按信息的重要性选择，保持精确引用、限定条件和防重叠检查，不设每页最低条数。首次使用新版会重新识别旧候选，避免沿用旧规则漏掉的内容。[本轮验收范围 →](V024_TEST_RESULTS.md)
+
 ## Quick Start
 
 **必须安装两部分：Zotero 插件 XPI + 本地 BabelDOC 引擎。仅安装 XPI 不能翻译。** 另需你自己的 OpenAI-compatible API。
@@ -59,7 +61,7 @@ AI 直接在中文 PDF 中标记**核心发现、关键数据和有依据的方�
 
 ## 兼容性与限制
 
-- **已验证：** Zotero **10.0.6 / macOS Apple Silicon**。manifest 支持 Zotero 9–10；9.x、Windows、Linux、Intel macOS 尚未完成独立客户端验证。
+- **已验证：** Zotero **10.0.6、10.0.7 / macOS Apple Silicon**；本轮 v0.2.4 原生验收使用 10.0.7。manifest 支持 Zotero 9–10；9.x、Windows、Linux、Intel macOS 尚未完成独立客户端验证。
 - **适用范围：** 原生 PDF 阅读模式；不支持 OCR、扫描件、加密或损坏 PDF、重排文本、EPUB、外部阅读器及独立阅读窗口。中文辅助视图只读，原文与译文批注不互相复制。
 - **需要核对：** 图片内文字通常保留原图，复杂表格、特殊字体和密集公式可能存在排版问题。AI 标注不证明研究结论、因果关系或跨文献新颖性；重要数值与结论请回看英文。
 

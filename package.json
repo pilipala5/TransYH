@@ -17,9 +17,10 @@
     "package": "npm run build && node scripts/package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/core.test.ts",
-    "test:engine": ".venv/bin/python -m pytest tests/test_worker.py tests/test_highlights.py tests/test_highlight_density.py -q",
-    "test:highlights": ".venv/bin/python -m pytest tests/test_highlights.py tests/test_highlight_density.py -q",
+    "test:engine": ".venv/bin/python -m pytest tests/test_worker.py tests/test_highlights.py tests/test_highlight_density.py tests/test_highlight_recall.py tests/test_responses.py -q",
+    "test:highlights": ".venv/bin/python -m pytest tests/test_highlights.py tests/test_highlight_density.py tests/test_highlight_recall.py -q",
     "test:zotero": "node scripts/zotero-test.mjs",
+    "test:zotero:v024": "node scripts/zotero-v024-test.mjs",
     "test:zotero:density": "node scripts/zotero-density-test.mjs"
   },
   "dependencies": {
