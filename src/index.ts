@@ -4,6 +4,7 @@ import { Store, Credentials, originalFor, translatedFor, stamp, importTranslatio
 import { Engine, WorkerRun } from "./engine";
 import { canonicalBaseURL, normalizeBaseURL } from "./core";
 import { TranslationProgress } from "./progress";
+import { TaskPerformance } from "./performance";
 
 const store = new Store();
 const credentials = new Credentials();
@@ -42,6 +43,9 @@ async function highlightAttachment(attachment: any, config = engine.config()): P
     if (!input || input === protectedOriginal) throw new Error("中文附件不可用，英文原件未修改。");
     const directory = highlightDirectory();
     const outputDir = PathUtils.join(directory, "staging", Services.uuid.generateUUID().toString().slice(1, -1));
+    await IOUtils.makeDirectory(outputDir, { permissions: 0o700, ignoreExisting: true });
+    const performance = new TaskPerformance(outputDir, "highlight_worker");
+    await performance.write();
     progress.update({ type: "progress", progress: 0, message: "读取中文 PDF，定位科研重点…" }); progress.show();
     try {
       const result = await engine.run("highlight", { ...config, highlightDensity: pref("highlightDensity", "smart"), input, protectedOriginal, outputDir,
@@ -52,21 +56,28 @@ async function highlightAttachment(attachment: any, config = engine.config()): P
         // Model work is cancellable; this short backup/atomic commit phase is
         // allowed to finish, including during orderly plugin shutdown.
         task.committing = true;
+        progress.update({ type: "progress", progress: 94, message: "科研重点已识别，正在安全写入 PDF…" });
+        await performance.mark("highlight_install");
         const saved = await engine.run("installHighlights", { input, protectedOriginal, candidatePath: result.path,
-          sourceFingerprint: result.sourceFingerprint, installDir: directory });
+          sourceFingerprint: result.sourceFingerprint, installDir: directory,
+          performanceDir: PathUtils.join(outputDir, "installation-performance") });
         result.backupPath = saved.backupPath;
         await IOUtils.remove(result.path, { ignoreAbsent: true }).catch(() => {});
         // Preserve the attachment ID and all Zotero annotation items.
+        await performance.mark("attachment_save");
         attachment.attachmentSyncState = Zotero.Sync.Storage.Local.SYNC_STATE_TO_UPLOAD;
         await attachment.saveTx();
+        progress.update({ type: "progress", progress: 98, message: "标注已保存，正在刷新阅读器…" });
+        await performance.mark("reader_refresh");
         try { await readers.pdfUpdated(attachment); }
         catch { notify("重点标注已安全保存；阅读器刷新未完成，可重新打开中文附件。", true); }
       }
       progress.finish(false, result.highlightCount ? (result.unchanged ? `已复用 ${result.highlightCount} 处重点，未重复请求或叠加标注。`
         : `已标注 ${result.highlightCount} 处重点；原译文备份保留，请核对证据。`)
         : "没有充分证据可标注，原译文保持可读。");
+      await performance.finish("completed");
       return result;
-    } catch (error) { progress.close(); throw error; }
+    } catch (error) { await performance.finish("failed"); progress.close(); throw error; }
   })().finally(() => highlightTasks.delete(source.id));
   highlightTasks.set(source.id, task);
   return task.promise;
@@ -86,6 +97,7 @@ export async function translate(item: any, options: { refresh?: boolean } = {}):
   if (tasks.has(source.id)) { showTranslationProgress(source); return tasks.get(source.id)!.promise; }
   const run = new WorkerRun();
   const progress = new TranslationProgress();
+  let performance: TaskPerformance | undefined;
   const promise = (async () => {
     progress.update({ type: "progress", message: "正在本地检查 PDF 语言…", progress: 0 });
     progress.show();
@@ -118,6 +130,8 @@ export async function translate(item: any, options: { refresh?: boolean } = {}):
       const version = `${Date.now()}-${token}`;
       const outputDir = PathUtils.join(Zotero.DataDirectory.dir, "transyh", "jobs", `${source.libraryID}-${source.key}`, version);
       await IOUtils.makeDirectory(outputDir, { permissions: 0o700, ignoreExisting: true });
+      performance = new TaskPerformance(outputDir, "translation_worker");
+      await performance.write();
       progress.update({ type: "progress", message: "正在准备本地翻译引擎…", progress: 0 });
       const result = await engine.run("translate", { ...config, input, outputDir,
         ...(options.refresh ? { ...taskParams, refreshToken: token } : {}) }, event => {
@@ -125,6 +139,7 @@ export async function translate(item: any, options: { refresh?: boolean } = {}):
       }, run);
       if (!result.path) throw new Error("本地引擎没有返回中文 PDF。");
       if (result.quality?.status === "structural_error") throw new Error("译文存在结构性错误，未导入；已有译文保留。");
+      await performance.mark("attachment_import");
       const attachment = await importTranslation(source, result.path, sourceState, { refresh: options.refresh, version });
       if (options.refresh) {
         try { await engine.run("completeRefresh", { ...taskParams, refreshToken: token }, undefined, run); }
@@ -133,17 +148,20 @@ export async function translate(item: any, options: { refresh?: boolean } = {}):
       // Imported attachment owns its own copy; remove the generated duplicate.
       await IOUtils.remove(result.path, { ignoreAbsent: true }).catch(() => {});
       if (pref("autoHighlights") === "true" && !run.cancelled) {
+        await performance.mark("automatic_highlights");
         try { await highlightAttachment(attachment, config); }
         catch { notify("中文译文已保存；AI 重点标注未完成，原译文和批注保留，可稍后重试。", true); }
       }
       progress.finish(result.quality?.status === "suspect");
       if (options.refresh) {
+        await performance.mark("reader_refresh");
         // A reader error does not roll back a valid, already imported PDF.
         try { await readers.translationUpdated(source, attachment); }
         catch { notify("新译文已保存；阅读器加载未完成，可再次点击“中文”。", true); }
       }
+      await performance.finish("completed");
       return attachment;
-    } catch (error) { progress.close(); throw error; }
+    } catch (error) { await performance?.finish("failed"); progress.close(); throw error; }
   })().finally(() => tasks.delete(source.id));
   tasks.set(source.id, { run, promise, progress });
   return promise;
