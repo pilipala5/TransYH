@@ -7,7 +7,13 @@ import time
 import threading
 
 
-def fixture_translation(text):
+def fixture_translation(text, model=''):
+    if model.startswith('fixture-completion-'):
+        from completion_fixture import TRANSLATIONS
+        normalized = ' '.join(text.split())
+        for english, chinese in sorted(TRANSLATIONS.items(), key=lambda row: -len(row[0])):
+            if english in normalized:
+                return chinese
     terms = {
         'Layout-Preserving Scientific Translation': '保留版式的科研论文翻译',
         'Mathematical Model and Visual Evidence': '数学模型与可视化证据',
@@ -104,8 +110,11 @@ class Handler(BaseHTTPRequestHandler):
                 for gold in reference:
                     # These are scripted semantic decisions, including negative
                     # examples. Local regexes no longer make these judgments.
-                    if gold['type'] and gold['quote'] in paragraph['text']:
-                        highlights.append({'paragraph_id':paragraph['paragraph_id'],'quote':gold['quote'],
+                    quote = gold['quote']
+                    if model.startswith('fixture-completion-') and paragraph['text'].replace('\x03', ' ') == quote:
+                        quote = paragraph['text']  # Quote the exact BabelDOC fixture text, including layout separators.
+                    if gold['type'] and quote in paragraph['text']:
+                        highlights.append({'paragraph_id':paragraph['paragraph_id'],'quote':quote,
                             'type':gold['type'],
                             'confidence':.99,'importance':gold.get('importance','core')})
             if 'candidates' in control:highlights=control['candidates']
@@ -113,9 +122,9 @@ class Handler(BaseHTTPRequestHandler):
             if model.startswith('fixture-highlight-invalid'):output='not valid JSON'
         elif '## Here is the input:' in text:
             rows=json.loads(text.split('## Here is the input:')[-1])
-            output=json.dumps([{'id':row['id'],'output':fixture_translation(row['input'])} for row in rows],ensure_ascii=False)
-        elif 'Input:\n\n' in text:output=fixture_translation(text.split('Input:\n\n')[-1])
-        elif 'Now translate the following text:' in text:output=fixture_translation(text.split('Now translate the following text:')[-1].strip())
+            output=json.dumps([{'id':row['id'],'output':fixture_translation(row['input'],model)} for row in rows],ensure_ascii=False)
+        elif 'Input:\n\n' in text:output=fixture_translation(text.split('Input:\n\n')[-1],model)
+        elif 'Now translate the following text:' in text:output=fixture_translation(text.split('Now translate the following text:')[-1].strip(),model)
         else:output='OK'
         if self.path.endswith('/responses'):
             response={'id':'resp_fixture','object':'response','created_at':1,'model':model,'status':'completed',

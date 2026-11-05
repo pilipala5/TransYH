@@ -295,7 +295,7 @@ async function applyPendingSetup(): Promise<void> {
     setPref("baseURL", base); setPref("model", setup.model); setPref("httpAllowedBase", allowedHTTPBase);
     setPref("pythonPath", setup.pythonPath || "");
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),
-      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.4" }, { permissions: 0o600 });
+      { ok: true, baseURL: base, model: setup.model, credentialsStored: true, version: "0.2.5" }, { permissions: 0o600 });
     await IOUtils.remove(setupFile);
   } catch {
     await IOUtils.writeJSON(PathUtils.join(Zotero.Profile.dir, "transyh-setup-result.json"),

@@ -9,7 +9,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT/'package.json').read_text())['version']
 XPI_FILES = {'manifest.json','bootstrap.js','content/transyh.js','content/preferences.js','content/preferences.xhtml',
-             'engine/worker.py','engine/api_client.py','engine/quality.py','engine/refresh_tasks.py','engine/macos_keychain.py','engine/requirements.txt',
+             'engine/worker.py','engine/api_client.py','engine/performance.py','engine/quality.py','engine/refresh_tasks.py','engine/macos_keychain.py','engine/requirements.txt',
              'engine/highlight_pdf.py','engine/highlight_jobs.py','engine/highlight_install.py',
              'engine/requirements-macos.lock','LICENSE','THIRD_PARTY_NOTICES.md'}
 FIXTURES = {'tests/fixtures/paper-english.pdf','tests/fixtures/switch-chinese.pdf'}
@@ -52,6 +52,12 @@ def check_xpi(data, label):
         manifest = json.loads(archive.read('manifest.json'))
         if manifest['version'] != VERSION:
             errors.append(f'{label}: manifest version mismatch')
+        compiled = archive.read('content/transyh.js').decode()
+        refresh = re.search(r'async pdfUpdated\(item\) \{(.*?)const panes =', compiled, re.S)
+        if not refresh or not re.search(
+                r'if \(this\.hostItemID !== item\.id && this\.otherItemID !== item\.id\) return;\s*'
+                r'if \(this\.switching\) await this\.switching;', refresh[1]):
+            errors.append(f'{label}: compiled reader completion guard is missing or out of order')
         for name in names:
             check_entry(name,archive.read(name),label)
             local = ROOT/'build'/name
@@ -85,7 +91,9 @@ if archive_path.exists():
         if archived != required or len(archive.namelist()) != len(archived):
             errors.append('source ZIP: source file coverage mismatch')
         for name in ('tests/test_highlight_recall.py', 'tests/test_responses.py', 'scripts/diagnose-highlights.py',
-                     'scripts/zotero-v024-test.mjs', 'tests/zotero-v024.js', 'V024_TEST_RESULTS.md'):
+                     'scripts/zotero-v024-test.mjs', 'tests/zotero-v024.js', 'V024_TEST_RESULTS.md',
+                     'engine/performance.py', 'scripts/zotero-v025-test.mjs', 'tests/zotero-v025.js',
+                     'tests/completion_fixture.py', 'V025_TEST_RESULTS.md'):
             if name not in archived:
                 errors.append(f'source ZIP: missing acceptance/diagnostic file: {name}')
         for entry in archive.namelist():
