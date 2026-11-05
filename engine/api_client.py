@@ -25,7 +25,24 @@ class TextResult:
 
 
 def create_text(client, *, model, messages, mode="responses", temperature=None,
-                max_tokens=None, json_mode=False, extra_body=None, extra_headers=None):
+                max_tokens=None, json_mode=False, extra_body=None, extra_headers=None,
+                performance=None, category="translation"):
+    trace = performance.begin_request(category, mode) if performance else None
+    error = None
+    try:
+        return _create_text(client, model=model, messages=messages, mode=mode, temperature=temperature,
+                            max_tokens=max_tokens, json_mode=json_mode, extra_body=extra_body,
+                            extra_headers=extra_headers, performance=performance, trace=trace)
+    except BaseException as exc:
+        error = exc
+        raise
+    finally:
+        if performance:
+            performance.end_request(trace, error)
+
+
+def _create_text(client, *, model, messages, mode, temperature, max_tokens,
+                 json_mode, extra_body, extra_headers, performance, trace):
     options = {"model": model}
     if temperature is not None:
         options["temperature"] = temperature
@@ -44,6 +61,10 @@ def create_text(client, *, model, messages, mode="responses", temperature=None,
         response = None
         with client.responses.create(**options) as events:
             for event in events:
+                if performance:
+                    performance.event(trace, event.type)
+                    if event.type in ("response.completed", "response.failed", "response.incomplete"):
+                        performance.usage(trace, getattr(getattr(event, "response", None), "usage", None), mode)
                 if event.type in ("error", "response.failed", "response.incomplete"):
                     raise APIResponseError("Responses 请求失败或输出未完成，已完成的缓存保留，请稍后重试。")
                 if event.type == "response.completed":
@@ -63,6 +84,8 @@ def create_text(client, *, model, messages, mode="responses", temperature=None,
         if json_mode:
             options["response_format"] = {"type": "json_object"}
         response = client.chat.completions.create(**options)
+        if performance:
+            performance.usage(trace, response.usage, mode)
         choice = response.choices[0]
         if choice.finish_reason != "stop":
             raise APIResponseError("Chat Completions 未返回完整结果，请检查模型后重试。")
@@ -90,7 +113,8 @@ class APITranslatorMixin:
         result = create_text(self.client, model=self.model, messages=messages, mode=self.api_mode,
                              temperature=self.options["temperature"] if self.send_temperature else None,
                              max_tokens=max_tokens, json_mode=json_mode,
-                             extra_body=self.extra_body, extra_headers=headers)
+                             extra_body=self.extra_body, extra_headers=headers,
+                             performance=getattr(self, "performance", None))
         for counter, value in ((self.token_count, result.total_tokens),
                                (self.prompt_token_count, result.input_tokens),
                                (self.completion_token_count, result.output_tokens),

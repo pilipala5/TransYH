@@ -14,6 +14,7 @@ import uuid
 import pymupdf
 
 from api_client import api_mode, create_text
+from performance import Performance
 
 from highlight_pdf import (EXTRACTION_VERSION, HighlightError, eligible, extract, fingerprint, metadata,
     density_mode, paper_context, paragraph_diagnostics, render_layer, text_identity, validate_candidates)
@@ -102,7 +103,9 @@ def batches_for(paragraphs):
     return batches
 
 
-def highlights(config, update=lambda *args, **kwargs: None):
+def highlights(config, update=lambda *args, **kwargs: None, performance=None):
+    performance = performance or Performance()
+    performance.phase("highlight_preparation")
     import httpx
     import openai
     mode = api_mode(config)
@@ -118,6 +121,7 @@ def highlights(config, update=lambda *args, **kwargs: None):
         raise HighlightError('中文附件指向英文原件，未执行标注。')
     source_id = fingerprint(source)
     with pymupdf.open(source) as pdf:
+        performance.settings.update(highlight_pages=len(pdf), highlight_concurrency=concurrency, api_mode=mode)
         if not pdf.is_pdf or pdf.is_repaired or pdf.needs_pass or pdf.get_sigflags() > 0:
             raise HighlightError("加密、损坏或签名 PDF 不支持安全标注，原译文未修改。")
         extraction = {}
@@ -136,11 +140,14 @@ def highlights(config, update=lambda *args, **kwargs: None):
         "reusedExistingLayer": False}
     same_text = marker and marker.get("text_id") == text_id
     if same_text and marker.get("config_id") == config_id:
+        performance.count("highlight_existing_layer_hits")
+        performance.count("highlight_final", marker["count"])
         diagnostics.update(reusedExistingLayer=True, finalHighlights=marker["count"])
         return {"unchanged": True, "highlightCount": marker["count"], "requests": 0, "cachedBatches": 0,
                 "diagnostics": diagnostics}
     base_id = marker["base_id"] if same_text else source_id
     batches = batches_for(paragraphs)
+    performance.count("highlight_batches", len(batches))
     diagnostics["batches"] = len(batches)
     records, cached = [], 0
     results, missing = {}, []
@@ -159,14 +166,21 @@ def highlights(config, update=lambda *args, **kwargs: None):
             update("activity", **counters)
 
     cache = Cache(config["cacheDir"])
+    performance.phase("ai_highlights")
     try:
         for index, batch in enumerate(batches):
             identifiers = [p["paragraph_id"] for p in batch]
             key = hashlib.sha256(json.dumps([base_id,text_id,candidate_id,identifiers],separators=(",",":")).encode()).hexdigest()
+            start = performance.now()
             saved = cache.get(key)
+            performance.wait("highlight_cache_read", start)
             if saved is None:
+                performance.count("highlight_cache_misses")
                 missing.append((index, batch, key))
             else:
+                performance.count("highlight_cache_hits")
+                performance.count("highlight_cached_candidates", saved["returnedCandidates"])
+                performance.count("highlight_cached_rejected", sum(saved["rejected"].values()))
                 results[index] = saved["records"]
                 cached += 1
                 diagnostics["cache"]["batches"] += 1
@@ -180,6 +194,7 @@ def highlights(config, update=lambda *args, **kwargs: None):
         with openai.OpenAI(base_url=config["baseURL"], api_key=config.get("apiKey") or "local-no-key",
                 max_retries=0, http_client=httpx.Client(timeout=float(config.get("timeout",120)), follow_redirects=False)) as client:
             def identify(batch):
+                performance.count("highlight_sent_paragraphs", len(batch))
                 with stats_lock:
                     stats["requests"] += 1
                     stats["activeRequests"] += 1
@@ -192,7 +207,8 @@ def highlights(config, update=lambda *args, **kwargs: None):
                                 "section_title":p["section_title"],"text":p["text"]} for p in batch]
                     response = create_text(client, model=config["model"], mode=mode, messages=[
                         {"role":"system","content":PROMPT},
-                        {"role":"user","content":json.dumps({"paper_context":context,"paragraphs":payload},ensure_ascii=False)}])
+                        {"role":"user","content":json.dumps({"paper_context":context,"paragraphs":payload},ensure_ascii=False)}],
+                        performance=performance, category="highlights")
                     try:
                         content = response.text
                         if not isinstance(content,str) or len(content) > 200000:raise ValueError
@@ -206,9 +222,13 @@ def highlights(config, update=lambda *args, **kwargs: None):
                     # Keep the full evidence-checked pool, including supporting
                     # results. Changing reader density never needs another call.
                     saved, rejected = validate_candidates(batch,candidates,density="full")
+                    performance.count("highlight_returned_candidates", len(candidates))
+                    performance.count("highlight_validation_rejected", sum(rejected.values()))
                     success = True
                     return {"records": saved, "returnedCandidates": len(candidates), "rejected": rejected}
                 finally:
+                    if not success:
+                        performance.count("highlight_failed_batches")
                     with stats_lock:
                         stats["activeRequests"] -= 1
                         stats["completedRequests"] += int(success)
@@ -230,12 +250,16 @@ def highlights(config, update=lambda *args, **kwargs: None):
                 for _ in range(min(concurrency, len(missing))):
                     schedule()
                 while inflight:
-                    done, _ = wait(inflight, return_when=FIRST_COMPLETED)
+                    done, _ = wait(inflight, timeout=2, return_when=FIRST_COMPLETED)
+                    if not done:
+                        report()
                     for future in done:
                         index, batch, key = inflight.pop(future)
                         try:
                             result = future.result()
+                            start = performance.now()
                             cache.put(key, result)
+                            performance.wait("highlight_cache_write", start)
                             results[index] = result["records"]
                             diagnostics["ai"]["returnedCandidates"] += result["returnedCandidates"]
                             diagnostics["ai"]["rejected"] = dict(Counter(diagnostics["ai"]["rejected"]) + Counter(result["rejected"]))
@@ -256,6 +280,7 @@ def highlights(config, update=lambda *args, **kwargs: None):
         for index in range(len(batches)):
             records.extend(results[index])
     finally:cache.close()
+    performance.phase("highlight_selection")
     # Recheck source mapping/overlap across batches, then select importance.
     by_id={p["paragraph_id"]:p for p in paragraphs}
     candidates=[]
@@ -270,6 +295,9 @@ def highlights(config, update=lambda *args, **kwargs: None):
     records,rejected=validate_candidates(paragraphs,candidates,density=density)
     diagnostics["selection"]["rejected"] = rejected
     diagnostics["finalHighlights"] = len(records)
+    performance.count("highlight_selection_candidates", len(candidates))
+    performance.count("highlight_selection_rejected", sum(rejected.values()))
+    performance.count("highlight_final", len(records))
     skipped = sum(sum(stage["rejected"].values()) for stage in
                   (diagnostics["ai"], diagnostics["cache"], diagnostics["selection"]))
     if fingerprint(source)!=source_id:
@@ -279,6 +307,8 @@ def highlights(config, update=lambda *args, **kwargs: None):
                 "diagnostics": diagnostics}
     output=Path(config["outputDir"]);output.mkdir(parents=True,exist_ok=True,mode=0o700)
     destination=output/(str(uuid.uuid4())+".pdf")
+    update("progress", progress=92, message="科研重点已核对，正在生成并核验高亮 PDF…")
+    performance.phase("pdf_highlight_write")
     render_layer(source,destination,paragraphs,records,config_id,base_id,density=density)
     os.chmod(destination,0o600)
     return {"path":str(destination),"sourceFingerprint":source_id,"highlightCount":len(records),

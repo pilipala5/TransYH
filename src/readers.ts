@@ -82,6 +82,10 @@ export class ReadingSession {
     }
   }
   async pdfUpdated(item: any): Promise<void> {
+    // A first switch to Chinese can be awaiting translate(), which awaits
+    // automatic highlights. No loaded pane needs reloading in that case.
+    // Waiting for that switch here would make the three promises cyclic.
+    if (this.hostItemID !== item.id && this.otherItemID !== item.id) return;
     if (this.switching) await this.switching;
     if (this.disposed) return;
     const panes = [this.hostItemID === item.id ? this.host : undefined,

@@ -19,6 +19,7 @@ import uuid
 from urllib import parse
 
 from api_client import APIResponseError, APITranslatorMixin, api_mode, create_text
+from performance import Performance, observe_babeldoc
 
 PROTOCOL = sys.stdout
 PROTOCOL_LOCK = threading.Lock()
@@ -78,10 +79,13 @@ class RequestActivity:
             emit("activity", **self.snapshot())
 
 
-def limited_request(slots, activity, operation):
+def limited_request(slots, activity, operation, performance=None):
     # BabelDOC uses several priority pools. Enforce one API-wide limit rather
     # than assuming pool_max_workers caps their combined in-flight requests.
+    waiting = performance.begin_wait("request_semaphore") if performance else None
     with slots:
+        if performance:
+            performance.end_wait(waiting)
         success = False
         activity.begin()
         try:
@@ -233,7 +237,9 @@ def refresh_task(action, config):
         raise UserError("TASK_STATE", "本地重译任务记录无法读写，或原 PDF / API 配置已变化。已有译文和缓存保留，请检查后重试。") from None
 
 
-async def translate(config: dict):
+async def translate(config: dict, performance=None):
+    performance = performance or Performance()
+    performance.phase("pdf_initialization")
     concurrency = request_concurrency(config)
     mode = request_api_mode(config)
     check_engine()
@@ -267,6 +273,7 @@ async def translate(config: dict):
     problems: list[UserError] = []
     activity = RequestActivity()
     request_slots = threading.BoundedSemaphore(concurrency)
+    performance.settings.update(concurrency=concurrency, qps=min(concurrency, 2), api_mode=mode, pages=page_count)
 
     class BoundedTranslator(APITranslatorMixin, OpenAITranslator):
         name = "transyh-openai"
@@ -274,16 +281,21 @@ async def translate(config: dict):
         def _request(self, fn, *args):
             if problems:
                 raise problems[0]
+            performance.count("translation_logical_calls")
             for attempt in range(3):
+                if attempt:
+                    performance.count("translation_retries")
                 try:
                     def operation():
                         if problems:
                             raise problems[0]
                         return fn(self, *args)
-                    return limited_request(request_slots, activity, operation)
+                    return limited_request(request_slots, activity, operation, performance)
                 except (openai.RateLimitError, openai.InternalServerError, openai.APIConnectionError, openai.APITimeoutError) as exc:
                     if attempt < 2:
+                        start = performance.now()
                         time.sleep(2 ** attempt)
+                        performance.wait("retry_backoff", start)
                         continue
                     issue = (UserError("TIMEOUT", "API 请求超时，已完成的段落缓存可供重试复用。")
                              if isinstance(exc, openai.APITimeoutError) else
@@ -309,10 +321,12 @@ async def translate(config: dict):
             return self._request(APITranslatorMixin.do_llm_translate, text, rate_limit_params)
 
     emit("progress", progress=0, message="加载开源版式模型和中文字体；首次使用可能需要下载…")
+    performance.phase("asset_initialization")
     high_level.init()
     translator = BoundedTranslator("en", "zh", model, base_url=base, api_key=config.get("apiKey") or "local-no-key",
                                   send_temperature=False, enable_json_mode_if_requested=False)
     translator.api_mode = mode
+    translator.performance = performance
     # Bound SDK retries/timeouts and disable redirects (including redirects of secrets).
     translator.client.close()
     translator.client = openai.OpenAI(base_url=base, api_key=config.get("apiKey") or "local-no-key", max_retries=0,
@@ -322,6 +336,7 @@ async def translate(config: dict):
     # upgrades/retries reuse completed paragraphs without paying for them again.
     activity.translator = translator
     set_translate_rate_limiter(min(concurrency, 2))
+    performance.phase("layout_model_loading")
     layout_model = await asyncio.to_thread(DocLayoutModel.load_available)
     cfg = TranslationConfig(translator=translator, input_file=source, lang_in="en", lang_out="zh",
         doc_layout_model=layout_model, output_dir=output, no_dual=True, no_mono=False,
@@ -333,8 +348,10 @@ async def translate(config: dict):
     heartbeat = threading.Thread(target=activity.heartbeat, daemon=True)
     heartbeat.start()
     try:
-        with track_babeldoc(high_level, audit):
+        performance.phase("pdf_parsing_layout")
+        with track_babeldoc(high_level, audit), observe_babeldoc(performance, high_level, translator):
             async for event in high_level.async_translate(cfg):
+                performance.babel_event(event)
                 if event["type"] in ("progress_start", "progress_update", "progress_end"):
                     emit("progress", progress=round(float(event.get("overall_progress", 0)), 1),
                          message=stage_message(event), **activity.snapshot())
@@ -350,6 +367,7 @@ async def translate(config: dict):
         if not path or not path.is_file():
             raise UserError("OUTPUT", "BabelDOC 未生成中文 PDF。")
         emit("progress", progress=99, message="检查翻译完整性与 PDF 排版…", **activity.snapshot())
+        performance.phase("quality_check")
         quality = check_pdf(source, path, audit)
         if not audit.tracking:
             audit.add("paragraph_tracking_unavailable")
@@ -365,12 +383,13 @@ async def translate(config: dict):
                 "cachedParagraphs": translator.translate_cache_call_count,
                 "quality": quality, "qualityReport": report_path}
     finally:
+        performance.phase("cleanup")
         activity.stop_event.set()
         heartbeat.join(timeout=3)
         translator.client.close()
 
 
-def highlight_action(action, config):
+def highlight_action(action, config, performance=None):
     import openai
     from highlight_pdf import HighlightError
     try:
@@ -379,7 +398,7 @@ def highlight_action(action, config):
             config = {**config,"baseURL":normalize_base(config.get("baseURL",""),config.get("allowedHTTPBase","")),
                       "apiMode":request_api_mode(config)}
             if not config.get("model","").strip():raise HighlightError("请先填写 Model。")
-            return highlights(config, emit)
+            return highlights(config, emit, performance=performance)
         from highlight_install import install, recover
         return install(config) if action == "installHighlights" else recover(config["installDir"])
     except HighlightError as error:
@@ -401,8 +420,26 @@ def main():
     # with accidental prints; stdout is exclusively the structured safe protocol.
     logging.disable(logging.CRITICAL)
     config = json.loads(sys.stdin.readline())
+    action = config.get("action")
+    directory = config.get("performanceDir") or config.get("outputDir")
+    performance = Performance(directory) if action in ("translate", "highlight", "installHighlights") else None
+    status = "failed"
+    try:
+        if performance:
+            performance.start_checkpoints()
+        result = dispatch(action, config, performance)
+        status = "completed"
+    except KeyboardInterrupt:
+        status = "cancelled"
+        raise
+    finally:
+        if performance:
+            performance.finish(status)
+    emit("done", **result)
+
+
+def dispatch(action, config, performance=None):
     with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-        action = config.get("action")
         if action == "check":
             result = check_engine()
         elif action == "inspect":
@@ -413,14 +450,16 @@ def main():
         elif action == "test":
             result = test_connection(config)
         elif action == "translate":
-            result = asyncio.run(translate(config))
+            result = asyncio.run(translate(config, performance))
         elif action in ("prepareRefresh", "completeRefresh"):
             result = refresh_task(action, config)
         elif action in ("highlight", "installHighlights", "recoverHighlights"):
-            result = highlight_action(action, config)
+            if action == "installHighlights" and performance:
+                performance.phase("highlight_install")
+            result = highlight_action(action, config, performance)
         else:
             raise UserError("PROTOCOL", "未知引擎操作。")
-    emit("done", **result)
+    return result
 
 
 if __name__ == "__main__":

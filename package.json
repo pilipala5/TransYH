@@ -1,6 +1,6 @@
 {
   "name": "transyh",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "repository": {
     "type": "git",
@@ -21,7 +21,8 @@
     "test:highlights": ".venv/bin/python -m pytest tests/test_highlights.py tests/test_highlight_density.py tests/test_highlight_recall.py -q",
     "test:zotero": "node scripts/zotero-test.mjs",
     "test:zotero:v024": "node scripts/zotero-v024-test.mjs",
-    "test:zotero:density": "node scripts/zotero-density-test.mjs"
+    "test:zotero:density": "node scripts/zotero-density-test.mjs",
+    "test:zotero:v025": "node scripts/zotero-v025-test.mjs"
   },
   "dependencies": {
     "zotero-plugin-toolkit": "6.0.0"
