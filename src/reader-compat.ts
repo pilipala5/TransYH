@@ -21,6 +21,12 @@ export class NativePane {
   private destroyed = false;
   constructor(public browser: any, public internal: any) {}
   get win(): any { return this.browser.contentWindow; }
+  get keyboardTargets(): any[] {
+    const reader = unwrap(this.internal);
+    // Capture on the browser before Zotero's native Tab focus navigation.
+    return [...new Set([this.browser, this.win, ...[reader?._primaryView, reader?._secondaryView]
+      .map(view => view?._iframeWindow || view?._iframe?.contentWindow)].filter(Boolean))];
+  }
   get pdf(): any {
     const view = unwrap(this.internal)?._primaryView;
     return unwrap(view?._iframeWindow || view?._iframe?.contentWindow)?.PDFViewerApplication;
