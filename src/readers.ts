@@ -2,6 +2,7 @@ import { NativePane, createPane, originalPane } from "./reader-compat";
 import { Store, originalFor, translatedFor, type SavedReading } from "./storage";
 import type { Language, ViewState } from "./core";
 import type { ProgressSnapshot } from "./progress";
+import { isLanguageShortcut, LANGUAGE_SHORTCUT } from "./shortcuts";
 
 type ReaderTasks = {
   status(item: any): ProgressSnapshot | undefined;
@@ -20,6 +21,7 @@ export class ReadingSession {
   private otherItemID?: number;
   private translation?: any;
   private switching?: Promise<void>;
+  private switchTarget?: Language;
   private requested?: { language: Language; state?: ViewState; refresh?: boolean };
   private changing = false;
   private disposed = false;
@@ -57,13 +59,22 @@ export class ReadingSession {
   switchTo(language: Language, restore?: ViewState, refresh = false): Promise<void> {
     if (this.disposed) return Promise.resolve();
     this.requested = { language, state: restore, refresh };
+    this.switchTarget = language;
     if (this.switching) return this.switching;
     this.changing = true;
     this.switching = this.drainSwitches().finally(() => {
-      this.switching = undefined; this.changing = false;
+      this.switching = undefined; this.switchTarget = undefined; this.changing = false;
       this.refresh(); this.save();
     });
     return this.switching;
+  }
+  toggleLanguage(): Promise<void> {
+    // Toggle the latest intent, including while a PDF is still loading.
+    const language = (this.switchTarget || this.language) === "en" ? "zh" : "en";
+    if (language === "zh" && !this.switching && this.tasks?.status(this.source)) {
+      this.tasks.show(this.source); return Promise.resolve();
+    }
+    return this.switchTo(language);
   }
   private async drainSwitches(): Promise<void> {
     try {
@@ -101,7 +112,7 @@ export class ReadingSession {
         this.addControls(pane); await pane.restore(state);
       }
       await this.drainSwitches();
-    })().finally(() => { this.switching = undefined; this.changing = false; this.refresh(); this.save(); });
+    })().finally(() => { this.switching = undefined; this.switchTarget = undefined; this.changing = false; this.refresh(); this.save(); });
     await this.switching;
   }
   private async performSwitch(language: Language, saved?: ViewState, refresh = false): Promise<void> {
@@ -152,14 +163,45 @@ export class ReadingSession {
   }
   private addControls(pane: NativePane): void {
     const doc = pane.win.document;
+    const shortcutHint = `中英文切换：${LANGUAGE_SHORTCUT}`;
+    const keyTargets = new Set<any>();
+    const keydown = (event: KeyboardEvent) => {
+      if (this.disposed || pane !== this.active || this.reader._window.Zotero_Tabs.selectedID !== this.reader.tabID
+        || !isLanguageShortcut(event)) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (!event.repeat) void this.toggleLanguage().catch(this.report);
+    };
+    const unbindKeys = () => {
+      for (const target of keyTargets) {
+        try { target.removeEventListener("keydown", keydown, true); } catch { /* closed content realm */ }
+      }
+      keyTargets.clear();
+    };
+    const bindKeys = () => {
+      // Capture before native Tab navigation; nested-frame listeners also cover
+      // content events that Gecko does not forward to the browser element.
+      const targets = new Set(pane.keyboardTargets);
+      for (const target of keyTargets) {
+        if (!targets.has(target)) { try { target.removeEventListener("keydown", keydown, true); } catch { /* closed realm */ } keyTargets.delete(target); }
+      }
+      for (const target of targets) {
+        if (!keyTargets.has(target)) { target.addEventListener("keydown", keydown, true); keyTargets.add(target); }
+      }
+    };
+    const loaded = () => { if (!this.disposed) { unbindKeys(); bindKeys(); } };
+    pane.win.addEventListener("load", loaded, true);
     let box: HTMLElement | undefined;
     const mount = () => {
-      if (this.disposed || doc.querySelector(".transyh-toggle")) return;
+      if (this.disposed) return;
+      bindKeys();
+      if (doc.querySelector(".transyh-toggle")) return;
       const toolbar = doc.querySelector(".toolbar .end, .toolbar .end-container, #toolbar .end") || doc.querySelector(".toolbar");
       if (!toolbar) return;
       box = doc.createElement("span");
       box!.className = "transyh-toggle";
       box!.setAttribute("role", "group"); box!.setAttribute("aria-label", "TransYH 阅读语言");
+      box!.title = shortcutHint;
+      box!.setAttribute("aria-keyshortcuts", LANGUAGE_SHORTCUT);
       box!.style.cssText = "display:inline-flex;align-items:center;gap:2px;flex-shrink:0;margin:0 7px;font:12px system-ui;";
       for (const lang of ["zh", "en"] as Language[]) {
         const button = doc.createElement("button");
@@ -204,8 +246,9 @@ export class ReadingSession {
     const closing = () => { if (pane === this.host) void this.dispose().catch(this.report); };
     pane.win.addEventListener("pagehide", closing);
     this.paneCleanups.set(pane, () => {
+      unbindKeys();
       try { observer.disconnect(); } catch { /* closed content realm */ }
-      try { bus?.off?.("updateviewarea", changed); pane.win?.removeEventListener("pagehide", closing); } catch { /* closed realm */ }
+      try { bus?.off?.("updateviewarea", changed); pane.win?.removeEventListener("pagehide", closing); pane.win?.removeEventListener("load", loaded, true); } catch { /* closed realm */ }
       if (box) { try { box.remove(); } catch { /* closed content realm */ } this.controls = this.controls.filter(x => x !== box); }
     });
     mount();
@@ -229,7 +272,8 @@ export class ReadingSession {
         if (button.dataset.language === "zh") {
           button.textContent = task ? (task.kind === "highlight" ? "标注中…" : "翻译中…") : "中文";
           button.title = task ? "查看当前任务进度" : this.sourceChinese ? "原文已是中文，无需翻译" : "切换中文；尚无译文时翻译全文";
-        } else if (this.sourceChinese) { button.textContent = "原文"; button.title = "原文已是中文"; }
+        } else { button.textContent = this.sourceChinese ? "原文" : "EN"; button.title = this.sourceChinese ? "原文已是中文" : "切换英文原文"; }
+        button.title += `\n中英文切换：${LANGUAGE_SHORTCUT}`;
       }
       const status = box.querySelector<HTMLButtonElement>(".transyh-status");
       const cancel = box.querySelector<HTMLButtonElement>(".transyh-cancel");
